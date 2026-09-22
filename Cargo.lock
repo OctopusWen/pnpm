@@ -5205,6 +5205,7 @@ version = "0.0.1"
 dependencies = [
  "derive_more",
  "ignore",
+ "pathdiff",
  "pnpm-diagnostics",
  "pnpm-package-manifest",
  "serde_json",

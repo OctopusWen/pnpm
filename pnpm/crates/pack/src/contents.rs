@@ -5,11 +5,29 @@ use super::{
 
 /// Map each packed path to `package/<path>` → absolute source, in
 /// packlist order.
-pub(super) fn build_files_map(dir: &Path, files: &[String]) -> indexmap::IndexMap<String, PathBuf> {
+pub(super) fn build_files_map(
+    dir: &Path,
+    workspace_dir: Option<&Path>,
+    files: &[String],
+) -> indexmap::IndexMap<String, PathBuf> {
     files
         .iter()
-        .map(|file| (format!("package/{file}"), dir.join(file)))
+        .map(|file| (format!("package/{file}"), packed_file_source(dir, workspace_dir, file)))
         .collect()
+}
+
+/// A workspace package packed with the hoisted linker can resolve a bundled
+/// dependency from the workspace root's `node_modules`. Its source lies above
+/// the package, but the tarball must still place it under the package's own
+/// `node_modules`.
+fn packed_file_source(dir: &Path, workspace_dir: Option<&Path>, file: &str) -> PathBuf {
+    let source = dir.join(file);
+    if source.exists() {
+        return source;
+    }
+    workspace_dir
+        .filter(|workspace_dir| file.starts_with("node_modules/"))
+        .map_or(source, |workspace_dir| workspace_dir.join(file))
 }
 
 /// Absolute source paths that should be marked executable in the
@@ -30,7 +48,10 @@ pub(super) fn executable_sources(
         .and_then(|config| config.get("executableFiles"))
         .and_then(Value::as_array)
     {
-        for file in executable_files.iter().filter_map(Value::as_str) {
+        for file in executable_files
+            .iter()
+            .filter_map(Value::as_str)
+        {
             bins.push(dir.join(file));
         }
     }
@@ -45,7 +66,11 @@ pub(super) fn inject_workspace_license(
     files_map: &mut indexmap::IndexMap<String, PathBuf>,
 ) {
     let Some(workspace_dir) = &opts.workspace_dir else { return };
-    if dir == workspace_dir || files_map.values().any(|file| contains_license(file)) {
+    if dir == workspace_dir
+        || files_map
+            .values()
+            .any(|file| contains_license(file))
+    {
         return;
     }
     let Ok(entries) = std::fs::read_dir(workspace_dir) else { return };
@@ -63,7 +88,10 @@ pub(super) fn inject_workspace_license(
         // bytes into the published tarball. `DirEntry::file_type` does not
         // follow symlinks, so `is_file()` rejects both — matching the
         // symlink-skipping `read_readme_file` does in `exportable-manifest`.
-        if entry.file_type().is_ok_and(|file_type| file_type.is_file()) {
+        if entry
+            .file_type()
+            .is_ok_and(|file_type| file_type.is_file())
+        {
             files_map.insert(format!("package/{name}"), workspace_dir.join(&name));
         }
     }
@@ -81,11 +109,10 @@ pub(super) fn unpacked_size<Sys: FsFileLen>(
         total += if is_manifest_entry(name) {
             manifest_json_len
         } else {
-            Sys::file_len(source)
-                .map_err(|source_err| PackError::ReadFile {
-                    path: source.display().to_string(),
-                    source: source_err,
-                })?
+            Sys::file_len(source).map_err(|source_err| PackError::ReadFile {
+                path: source.display().to_string(),
+                source: source_err,
+            })?
         };
     }
     Ok(total)

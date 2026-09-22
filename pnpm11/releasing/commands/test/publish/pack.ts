@@ -190,24 +190,27 @@ test('pack: bundles transitive dependencies of bundled dependencies (hoisted)', 
   expect(fs.existsSync('package/node_modules/nested/index.js')).toBeTruthy()
 })
 
-test('pack when there is bundledDependencies but without node-linker=hoisted', async () => {
+test('pack: bundles dependencies with the isolated linker', async () => {
   prepare({
     name: 'bundled-deps-without-node-linker-hoisted',
     version: '0.0.0',
-    bundledDependencies: [],
+    bundledDependencies: ['bundled-dep'],
   })
 
-  await expect(pack.handler({
+  fs.mkdirSync('node_modules/bundled-dep', { recursive: true })
+  fs.writeFileSync('node_modules/bundled-dep/package.json', JSON.stringify({ name: 'bundled-dep', version: '1.0.0' }), 'utf8')
+  fs.writeFileSync('node_modules/bundled-dep/index.js', 'module.exports = 42', 'utf8')
+
+  await pack.handler({
     ...DEFAULT_OPTS,
     nodeLinker: 'isolated',
     argv: { original: [] },
     dir: process.cwd(),
     extraBinPaths: [],
-  })).rejects.toMatchObject({
-    code: 'ERR_PNPM_BUNDLED_DEPENDENCIES_WITHOUT_HOISTED',
-    message: 'bundledDependencies does not work with "nodeLinker: isolated"',
-    hint: 'Add "nodeLinker: hoisted" to pnpm-workspace.yaml or delete bundledDependencies from the root package.json to resolve this error',
   })
+
+  await tar.x({ file: 'bundled-deps-without-node-linker-hoisted-0.0.0.tgz' })
+  expect(fs.existsSync('package/node_modules/bundled-dep/index.js')).toBeTruthy()
 })
 
 describe('pack: package with custom tarball path', () => {

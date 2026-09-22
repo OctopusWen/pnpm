@@ -120,9 +120,15 @@ pub fn packlist_with_options(
     manifest: &Value,
     options: PacklistOptions<'_>,
 ) -> Result<Vec<String>, PacklistError> {
-    let mut out: BTreeSet<String> = collect_own_files(pkg_dir, manifest, options.workspace_dir)?;
-    collect_bundled_files(pkg_dir, manifest, &mut out)?;
-    Ok(out.into_iter().collect())
+    let workspace_dir = options
+        .workspace_dir
+        .filter(|workspace_dir| pkg_dir.starts_with(workspace_dir));
+    let mut out: BTreeSet<String> = collect_own_files(pkg_dir, manifest, workspace_dir)?;
+    collect_bundled_files(pkg_dir, manifest, workspace_dir, &mut out)?;
+    Ok(out
+        .into_iter()
+        .map(normalize_workspace_bundle_path)
+        .collect())
 }
 
 /// Collect the forward-slash relative paths for a single package's own
@@ -135,10 +141,14 @@ fn collect_own_files(
     manifest: &Value,
     workspace_dir: Option<&Path>,
 ) -> Result<BTreeSet<String>, PacklistError> {
-    let files_field = manifest.get("files").and_then(Value::as_array);
+    let files_field = manifest
+        .get("files")
+        .and_then(Value::as_array);
     let files_matcher: Option<Gitignore> =
         files_field.and_then(|arr| build_files_matcher(pkg_dir, arr));
-    let main_path = manifest.get("main").and_then(Value::as_str);
+    let main_path = manifest
+        .get("main")
+        .and_then(Value::as_str);
     let bin_paths: Vec<&str> = manifest
         .get("bin")
         .map(|bin| match bin {
@@ -241,7 +251,10 @@ fn collect_walked_files(
 ) -> Result<(), PacklistError> {
     for entry in builder.build() {
         let entry = entry.map_err(|err| io_error(pkg_dir, into_io(err)))?;
-        if !entry.file_type().is_some_and(|file_type| file_type.is_file()) {
+        if !entry
+            .file_type()
+            .is_some_and(|file_type| file_type.is_file())
+        {
             continue;
         }
         let rel = relative_forward_slash(pkg_dir, entry.path());
@@ -284,7 +297,10 @@ fn collect_always_included_at_root(
             pkg_dir: pkg_dir.display().to_string(),
             source,
         })?;
-        if !entry.file_type().is_ok_and(|file_type| file_type.is_file()) {
+        if !entry
+            .file_type()
+            .is_ok_and(|file_type| file_type.is_file())
+        {
             continue;
         }
         let name = entry
@@ -309,7 +325,8 @@ fn force_include_main_and_bin(
     selection: &FileSelection<'_>,
     out: &mut BTreeSet<String>,
 ) {
-    let declared = selection.main_path
+    let declared = selection
+        .main_path
         .into_iter()
         .chain(selection.bin_paths.iter().copied());
     for path in declared {
@@ -441,7 +458,9 @@ fn anchor_files_entry(pattern: &str) -> String {
 /// behavior npm-packlist's `files`-field needs (a directory pattern
 /// includes its contents recursively).
 fn files_field_includes(matcher: &Gitignore, rel: &str) -> bool {
-    matcher.matched_path_or_any_parents(rel, false).is_ignore()
+    matcher
+        .matched_path_or_any_parents(rel, false)
+        .is_ignore()
 }
 
 fn is_always_included_at_root(rel: &str) -> bool {
@@ -494,7 +513,7 @@ fn should_always_exclude(rel: &str) -> bool {
 }
 
 fn relative_forward_slash(root: &Path, full: &Path) -> String {
-    let rel = full.strip_prefix(root).unwrap_or(full);
+    let rel = pathdiff::diff_paths(full, root).unwrap_or_else(|| full.to_path_buf());
     let mut buf = PathBuf::from(rel)
         .into_os_string()
         .to_string_lossy()
@@ -505,12 +524,23 @@ fn relative_forward_slash(root: &Path, full: &Path) -> String {
     buf
 }
 
+/// A hoisted workspace package can resolve a bundle from the workspace root's
+/// `node_modules`. It is emitted at the packed package's own node_modules
+/// location, while `pnpm-pack` separately selects the workspace-root file as
+/// its source.
+fn normalize_workspace_bundle_path(path: String) -> String {
+    let under_modules = path.trim_start_matches("../");
+    if under_modules.starts_with("node_modules/") { under_modules.to_string() } else { path }
+}
+
 /// Strip a leading `./` and any leading slashes from `path` so manifest
 /// field entries match the forward-slash relative form `packlist`
 /// produces. Mirrors `npm-packlist`'s normalization step.
 fn normalize_field_path(path: &str) -> String {
     let trimmed = path.trim_start_matches("./");
-    trimmed.trim_start_matches('/').to_string()
+    trimmed
+        .trim_start_matches('/')
+        .to_string()
 }
 
 /// Whether a [`normalize_field_path`]-ed `main` / `bin` value stays inside
@@ -540,7 +570,9 @@ fn is_regular_file_within(root: &Path, candidate: &Path) -> bool {
     let Ok(resolved) = candidate.canonicalize() else {
         return false;
     };
-    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let canonical_root = root
+        .canonicalize()
+        .unwrap_or_else(|_| root.to_path_buf());
     resolved.starts_with(&canonical_root) && resolved.is_file()
 }
 

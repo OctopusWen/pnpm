@@ -146,7 +146,11 @@ fn injected_files_are_packed_and_supersede_an_on_disk_entry() {
         vec![("package/CHANGELOG.md".to_string(), composed.as_bytes().to_vec())];
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
-    assert!(result.contents.contains(&"CHANGELOG.md".to_string()));
+    assert!(
+        result
+            .contents
+            .contains(&"CHANGELOG.md".to_string())
+    );
 
     let tarball = dir.path().join("foo-1.1.0.tgz");
     // Exactly one CHANGELOG.md entry, carrying the composed content.
@@ -289,7 +293,13 @@ fn publish_config_name_renames_the_tarball_and_the_packed_manifest() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
 
-    assert!(result.tarball_path.ends_with("pnpm-1.2.3.tgz"), "{:?}", result.tarball_path);
+    assert!(
+        result
+            .tarball_path
+            .ends_with("pnpm-1.2.3.tgz"),
+        "{:?}",
+        result.tarball_path
+    );
     let tarball = dir.path().join("pnpm-1.2.3.tgz");
     let manifest = tarball_entry_content(&tarball, "package/package.json")
         .expect("the tarball carries a manifest");
@@ -476,7 +486,9 @@ fn unpacked_size_sums_file_and_manifest_bytes() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
 
-    let manifest_len = serde_json::to_string_pretty(&result.published_manifest).unwrap().len();
+    let manifest_len = serde_json::to_string_pretty(&result.published_manifest)
+        .unwrap()
+        .len();
     assert_eq!(result.unpacked_size, manifest_len as u64 + 10);
 }
 
@@ -573,23 +585,7 @@ fn out_and_pack_destination_together_is_rejected() {
 }
 
 #[test]
-fn bundled_dependencies_without_hoisted_is_rejected() {
-    let (_dir, opts) = fixture(&json!({
-        "name": "foo",
-        "version": "1.0.0",
-        "bundledDependencies": ["bar"],
-    }));
-    assert!(matches!(
-        api::<SilentReporter, Host>(&opts),
-        Err(PackError::BundledDependenciesWithoutHoisted { field: "bundledDependencies", .. })
-    ));
-}
-
-#[test]
 fn bundle_dependencies_false_is_allowed_without_hoisted() {
-    // pnpm gates on truthiness (`if (bundledDependencies)`), so an
-    // explicit `false` must pack cleanly under the default non-hoisted
-    // linker instead of tripping the guard.
     let (_dir, opts) = fixture(&json!({
         "name": "foo",
         "version": "1.0.0",
@@ -665,9 +661,21 @@ fn workspace_license_is_injected_into_a_sub_package() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
     dbg!(&result.contents);
-    assert!(result.contents.contains(&"LICENSE".to_string()));
-    assert!(result.contents.contains(&"sublicense.txt".to_string()));
-    assert!(result.contents.contains(&"licenseX.json".to_string()));
+    assert!(
+        result
+            .contents
+            .contains(&"LICENSE".to_string())
+    );
+    assert!(
+        result
+            .contents
+            .contains(&"sublicense.txt".to_string())
+    );
+    assert!(
+        result
+            .contents
+            .contains(&"licenseX.json".to_string())
+    );
     let names = tarball_entry_names(&pkg_dir.join("foo-1.0.0.tgz"));
     assert!(names.contains(&"package/LICENSE".to_string()));
     assert!(names.contains(&"package/sublicense.txt".to_string()));
@@ -725,7 +733,11 @@ fn symlinked_workspace_license_is_not_injected() {
     };
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
-    assert!(!result.contents.contains(&"LICENSE".to_string()));
+    assert!(
+        !result
+            .contents
+            .contains(&"LICENSE".to_string())
+    );
     let names = tarball_entry_names(&pkg_dir.join("foo-1.0.0.tgz"));
     assert!(!names.contains(&"package/LICENSE".to_string()));
 }
@@ -777,8 +789,16 @@ fn workspace_root_gitignore_excludes_workspace_package_files() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
 
-    assert!(result.contents.contains(&"src/index.js".to_string()));
-    assert!(!result.contents.contains(&"dist/generated.js".to_string()));
+    assert!(
+        result
+            .contents
+            .contains(&"src/index.js".to_string())
+    );
+    assert!(
+        !result
+            .contents
+            .contains(&"dist/generated.js".to_string())
+    );
     let names = tarball_entry_names(&pkg_dir.join("foo-1.0.0.tgz"));
     assert!(names.contains(&"package/src/index.js".to_string()));
     assert!(!names.contains(&"package/dist/generated.js".to_string()));
@@ -795,8 +815,16 @@ fn unrelated_workspace_dir_does_not_apply_workspace_gitignore() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
 
-    assert!(result.contents.contains(&"dist/generated.js".to_string()));
-    assert!(result.contents.contains(&"src/index.js".to_string()));
+    assert!(
+        result
+            .contents
+            .contains(&"dist/generated.js".to_string())
+    );
+    assert!(
+        result
+            .contents
+            .contains(&"src/index.js".to_string())
+    );
     let names = tarball_entry_names(&package.path().join("foo-1.0.0.tgz"));
     assert!(names.contains(&"package/dist/generated.js".to_string()));
     assert!(names.contains(&"package/src/index.js".to_string()));

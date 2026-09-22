@@ -1,4 +1,5 @@
 use super::{Host, NodeLinker, SilentReporter, api, fixture, install_module, json};
+use std::fs;
 
 /// `pack` bundles dependencies listed in `bundleDependencies`.
 /// Covers the `fs-packlist` `bundleDependencies` recursion and the
@@ -16,10 +17,19 @@ fn bundles_dependencies_listed_in_bundle_dependencies() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
 
-    assert!(result.contents.contains(&"node_modules/bundled-dep/package.json".to_string()));
-    assert!(result.contents.contains(&"node_modules/bundled-dep/index.js".to_string()));
     assert!(
-        !result.contents
+        result
+            .contents
+            .contains(&"node_modules/bundled-dep/package.json".to_string())
+    );
+    assert!(
+        result
+            .contents
+            .contains(&"node_modules/bundled-dep/index.js".to_string())
+    );
+    assert!(
+        !result
+            .contents
             .iter()
             .any(|path| path.contains("not-bundled")),
     );
@@ -42,12 +52,78 @@ fn bundles_every_dependency_when_bundle_dependencies_is_true() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
 
-    assert!(result.contents.contains(&"node_modules/bundled-dep/index.js".to_string()));
-    assert!(result.contents.contains(&"node_modules/bundled-dep/package.json".to_string()));
     assert!(
-        !result.contents
+        result
+            .contents
+            .contains(&"node_modules/bundled-dep/index.js".to_string())
+    );
+    assert!(
+        result
+            .contents
+            .contains(&"node_modules/bundled-dep/package.json".to_string())
+    );
+    assert!(
+        !result
+            .contents
             .iter()
             .any(|path| path.contains("not-a-dep")),
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn bundles_workspace_dependency_with_the_isolated_linker() {
+    let (dir, mut opts) = fixture(&json!({
+        "name": "workspace-app",
+        "version": "0.0.0",
+        "bundleDependencies": ["workspace-dep"],
+    }));
+    let workspace_dep = dir
+        .path()
+        .join("packages/workspace-dep");
+    fs::create_dir_all(&workspace_dep).unwrap();
+    fs::write(workspace_dep.join("package.json"), r#"{"name":"workspace-dep","version":"1.0.0"}"#)
+        .unwrap();
+    fs::write(workspace_dep.join("index.js"), "module.exports = 42").unwrap();
+    fs::create_dir_all(dir.path().join("node_modules")).unwrap();
+    std::os::unix::fs::symlink(
+        &workspace_dep,
+        dir.path()
+            .join("node_modules/workspace-dep"),
+    )
+    .unwrap();
+
+    opts.workspace_dir = Some(dir.path().to_path_buf());
+
+    let result = api::<SilentReporter, Host>(&opts).unwrap();
+    assert!(
+        result
+            .contents
+            .contains(&"node_modules/workspace-dep/index.js".to_string())
+    );
+}
+
+#[test]
+fn bundles_workspace_dependency_from_a_hoisted_workspace_root() {
+    let (dir, mut opts) = fixture(&json!({ "name": "workspace", "version": "0.0.0" }));
+    let app = dir.path().join("packages/app");
+    fs::create_dir_all(&app).unwrap();
+    fs::write(
+        app.join("package.json"),
+        r#"{"name":"workspace-app","version":"0.0.0","bundleDependencies":["workspace-dep"]}"#,
+    )
+    .unwrap();
+    install_module(dir.path(), "workspace-dep", "1.0.0", &[("index.js", "module.exports = 42")]);
+
+    opts.dir = app;
+    opts.workspace_dir = Some(dir.path().to_path_buf());
+    opts.manifest.node_linker = NodeLinker::Hoisted;
+
+    let result = api::<SilentReporter, Host>(&opts).unwrap();
+    assert!(
+        result
+            .contents
+            .contains(&"node_modules/workspace-dep/index.js".to_string())
     );
 }
 
@@ -81,9 +157,15 @@ fn bundles_transitive_dependencies_of_bundled_dependencies() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
 
-    assert!(result.contents.contains(&"node_modules/top/index.js".to_string()));
     assert!(
-        result.contents.contains(&"node_modules/nested/index.js".to_string()),
+        result
+            .contents
+            .contains(&"node_modules/top/index.js".to_string())
+    );
+    assert!(
+        result
+            .contents
+            .contains(&"node_modules/nested/index.js".to_string()),
         "hoisted transitive dep `nested` must be bundled: {:?}",
         result.contents,
     );

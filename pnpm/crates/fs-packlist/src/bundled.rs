@@ -38,6 +38,7 @@ struct BundleTask {
 pub(super) fn collect_bundled_files(
     root: &Path,
     root_manifest: &Value,
+    workspace_dir: Option<&Path>,
     out: &mut BTreeSet<String>,
 ) -> Result<(), PacklistError> {
     // Canonical form of the package root, used to reject any bundled
@@ -52,7 +53,8 @@ pub(super) fn collect_bundled_files(
         .collect();
 
     while let Some(task) = queue.pop_front() {
-        let Some(admitted) = admitted_bundle(&task, root, canonical_root.as_deref()) else {
+        let Some(admitted) = admitted_bundle(&task, root, workspace_dir, canonical_root.as_deref())
+        else {
             continue;
         };
         let AdmittedBundle { dir: dep_dir, dedup_key } = admitted;
@@ -88,6 +90,7 @@ pub(super) fn collect_bundled_files(
 fn admitted_bundle(
     task: &BundleTask,
     root: &Path,
+    workspace_dir: Option<&Path>,
     canonical_root: Option<&Path>,
 ) -> Option<AdmittedBundle> {
     if task.depth > MAX_BUNDLE_DEPTH {
@@ -107,7 +110,8 @@ fn admitted_bundle(
         );
         return None;
     }
-    let Some(dep_dir) = resolve_bundled_dependency(&task.name, &task.from_dir, root) else {
+    let Some(dep_dir) = resolve_bundled_dependency(&task.name, &task.from_dir, root, workspace_dir)
+    else {
         tracing::debug!(
             target: "pacquet::fs_packlist",
             bundle_name = %task.name,
@@ -122,7 +126,8 @@ fn admitted_bundle(
     // both then degrade — the check to a lexical comparison, the dedup to the
     // raw path.
     let canonical_dep = fs::canonicalize(&dep_dir).ok();
-    if escapes_package_tree(&dep_dir, root, canonical_root, canonical_dep.as_deref()) {
+    if escapes_package_tree(&dep_dir, root, workspace_dir, canonical_root, canonical_dep.as_deref())
+    {
         tracing::warn!(
             target: "pacquet::fs_packlist",
             bundle_name = %task.name,
@@ -146,6 +151,7 @@ struct AdmittedBundle {
 fn escapes_package_tree(
     dep_dir: &Path,
     root: &Path,
+    workspace_dir: Option<&Path>,
     canonical_root: Option<&Path>,
     canonical_dep: Option<&Path>,
 ) -> bool {
@@ -161,18 +167,32 @@ fn escapes_package_tree(
     let Some(canonical_dep) = canonical_dep else {
         return true;
     };
-    canonical_dep.strip_prefix(canonical_root).is_err()
+    if canonical_dep.starts_with(canonical_root) {
+        return false;
+    }
+    workspace_dir
+        .and_then(|workspace_dir| workspace_dir.canonicalize().ok())
+        .is_none_or(|workspace_dir| {
+            canonical_dep
+                .strip_prefix(workspace_dir)
+                .is_err()
+        })
 }
 
 /// Resolve a bundled dependency `name` to its directory using the
 /// node module-resolution walk-up: check `from_dir/node_modules/name`,
 /// then climb to each ancestor's `node_modules/`, stopping at `root`.
-/// Returns the first directory that contains a `package.json`, or
-/// `None` if the name resolves nowhere within the package tree.
+/// A workspace package may then fall back to the workspace root's hoisted
+/// `node_modules`. Returns the first directory that contains a `package.json`.
 ///
-/// Climbing past `root` is refused so a hoisted dep always resolves to
-/// the package being packed rather than to a sibling on the host.
-fn resolve_bundled_dependency(name: &str, from_dir: &Path, root: &Path) -> Option<PathBuf> {
+/// Climbing past the workspace root is refused so a dependency never resolves
+/// to a sibling on the host.
+fn resolve_bundled_dependency(
+    name: &str,
+    from_dir: &Path,
+    root: &Path,
+    workspace_dir: Option<&Path>,
+) -> Option<PathBuf> {
     let mut current = from_dir.to_path_buf();
     loop {
         let candidate = current.join("node_modules").join(name);
@@ -180,6 +200,16 @@ fn resolve_bundled_dependency(name: &str, from_dir: &Path, root: &Path) -> Optio
             return Some(candidate);
         }
         if current == root {
+            return workspace_dir
+                .filter(|workspace_dir| *workspace_dir != root)
+                .map(|workspace_dir| {
+                    workspace_dir
+                        .join("node_modules")
+                        .join(name)
+                })
+                .filter(|candidate| candidate.join("package.json").is_file());
+        }
+        if workspace_dir.is_some_and(|workspace_dir| current == workspace_dir) {
             return None;
         }
         let parent = current.parent()?;
@@ -261,7 +291,10 @@ fn root_bundle_dep_names(manifest: &Value) -> Vec<String> {
 fn nested_bundle_dep_names(manifest: &Value) -> Vec<String> {
     let mut names = Vec::new();
     for field in ["dependencies", "optionalDependencies"] {
-        if let Some(map) = manifest.get(field).and_then(Value::as_object) {
+        if let Some(map) = manifest
+            .get(field)
+            .and_then(Value::as_object)
+        {
             names.extend(map.keys().cloned());
         }
     }
