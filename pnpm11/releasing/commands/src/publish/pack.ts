@@ -571,7 +571,7 @@ function preventBundledDependenciesWithPnpNodeLinker (nodeLinker: Config['nodeLi
     const bundledDependencies = manifest[key]
     if (bundledDependencies) {
       throw new PnpmError('BUNDLED_DEPENDENCIES_WITHOUT_HOISTED', `${key} does not work with "nodeLinker: ${nodeLinker}"`, {
-        hint: `Add "nodeLinker: hoisted" to pnpm-workspace.yaml or delete ${key} from the root package.json to resolve this error`,
+        hint: `Set "nodeLinker: isolated" or "nodeLinker: hoisted" in pnpm-workspace.yaml or delete ${key} from the root package.json to resolve this error`,
       })
     }
   }

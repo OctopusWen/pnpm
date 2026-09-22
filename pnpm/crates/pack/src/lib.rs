@@ -111,7 +111,7 @@ pub enum PackError {
     #[diagnostic(
         code(ERR_PNPM_BUNDLED_DEPENDENCIES_WITHOUT_HOISTED),
         help(
-            "Add \"nodeLinker: hoisted\" to pnpm-workspace.yaml or delete {field} from the root package.json to resolve this error"
+            "Set \"nodeLinker: isolated\" or \"nodeLinker: hoisted\" in pnpm-workspace.yaml or delete {field} from the root package.json to resolve this error"
         )
     )]
     BundledDependenciesWithPnp { field: &'static str, node_linker: &'static str },

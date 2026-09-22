@@ -225,6 +225,46 @@ test.each([false, true])('pack: bundles workspace dependencies with the isolated
   expect(fs.readFileSync('package/node_modules/bundled-dep/index.js', 'utf8')).toBe('module.exports = 42')
 })
 
+test.each([false, true])('pack: does not bundle ancestor dependencies beyond its resolution root (workspace: %s)', async (workspace) => {
+  const dir = tempDir()
+  const workspaceDir = workspace ? path.join(dir, 'workspace') : undefined
+  const appDir = path.join(workspaceDir ?? dir, 'app')
+  prepare({
+    name: 'app',
+    version: '1.0.0',
+    bundledDependencies: ['outside-direct', 'inside'],
+  }, { tempDir: appDir })
+  const modulesDir = path.join(appDir, 'node_modules')
+  fs.mkdirSync(path.join(modulesDir, 'inside'), { recursive: true })
+  fs.writeFileSync(path.join(modulesDir, 'inside/package.json'), JSON.stringify({
+    name: 'inside',
+    version: '1.0.0',
+    dependencies: { 'outside-transitive': '1.0.0' },
+  }))
+  for (const name of ['outside-direct', 'outside-transitive']) {
+    const dependencyDir = path.join(dir, 'node_modules', name)
+    fs.mkdirSync(dependencyDir, { recursive: true })
+    fs.writeFileSync(path.join(dependencyDir, 'package.json'), JSON.stringify({ name, version: '1.0.0' }))
+    fs.writeFileSync(path.join(dependencyDir, 'index.js'), 'outside the resolution root')
+  }
+
+  await pack.handler({
+    ...DEFAULT_OPTS,
+    nodeLinker: 'isolated',
+    workspaceDir,
+    argv: { original: [] },
+    dir: appDir,
+    extraBinPaths: [],
+  })
+
+  const files: string[] = []
+  await tar.t({ file: 'app-1.0.0.tgz', onReadEntry: entry => {
+    files.push(entry.path)
+  } })
+  expect(files).toContain('package/node_modules/inside/package.json')
+  expect(files.some(file => file.includes('outside-'))).toBe(false)
+})
+
 test('pack rejects bundled dependencies with the PnP linker', async () => {
   prepare({
     name: 'bundled-deps-with-pnp-linker',
@@ -241,6 +281,7 @@ test('pack rejects bundled dependencies with the PnP linker', async () => {
   })).rejects.toMatchObject({
     code: 'ERR_PNPM_BUNDLED_DEPENDENCIES_WITHOUT_HOISTED',
     message: 'bundledDependencies does not work with "nodeLinker: pnp"',
+    hint: 'Set "nodeLinker: isolated" or "nodeLinker: hoisted" in pnpm-workspace.yaml or delete bundledDependencies from the root package.json to resolve this error',
   })
 })
 
