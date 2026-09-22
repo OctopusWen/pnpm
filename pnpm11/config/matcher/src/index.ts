@@ -77,7 +77,7 @@ function matcherFromPattern (pattern: string): Matcher {
     return (input: string) => input === pattern
   }
 
-  const regexp = new RegExp(`^${escapedPattern}$`, 'u')
+  const regexp = new RegExp(`^${escapedPattern}$`, 'su')
   return (input: string) => regexp.test(input)
 }
 
