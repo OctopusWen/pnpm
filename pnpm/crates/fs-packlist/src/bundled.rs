@@ -1,6 +1,6 @@
 use super::{
-    BTreeSet, HashSet, PacklistError, Path, PathBuf, Value, VecDeque, collect_own_files, fs,
-    relative_forward_slash, safe_read_package_json_from_dir,
+    BTreeMap, HashSet, PacklistError, Path, PathBuf, Value, VecDeque, collect_own_files, fs,
+    normalize_workspace_bundle_path, relative_forward_slash, safe_read_package_json_from_dir,
 };
 
 /// Cap on `bundleDependencies` closure depth. Real packages bundle
@@ -39,7 +39,7 @@ pub(super) fn collect_bundled_files(
     root: &Path,
     root_manifest: &Value,
     workspace_dir: Option<&Path>,
-    out: &mut BTreeSet<String>,
+    out: &mut BTreeMap<String, PathBuf>,
 ) -> Result<(), PacklistError> {
     // Canonical form of the package root, used to reject any bundled
     // dependency whose real path escapes the tree (see the symlink check
@@ -67,7 +67,10 @@ pub(super) fn collect_bundled_files(
             .flatten()
             .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
         for rel in collect_own_files(&dep_dir, &dep_manifest, None)? {
-            out.insert(format!("{prefix}/{rel}"));
+            out.insert(
+                normalize_workspace_bundle_path(format!("{prefix}/{rel}")),
+                dep_dir.join(rel),
+            );
         }
         for name in nested_bundle_dep_names(&dep_manifest) {
             queue.push_back(BundleTask { name, from_dir: dep_dir.clone(), depth: task.depth + 1 });
@@ -172,11 +175,7 @@ fn escapes_package_tree(
     }
     workspace_dir
         .and_then(|workspace_dir| workspace_dir.canonicalize().ok())
-        .is_none_or(|workspace_dir| {
-            canonical_dep
-                .strip_prefix(workspace_dir)
-                .is_err()
-        })
+        .is_none_or(|workspace_dir| canonical_dep.strip_prefix(workspace_dir).is_err())
 }
 
 /// Resolve a bundled dependency `name` to its directory using the
@@ -202,11 +201,7 @@ fn resolve_bundled_dependency(
         if current == root {
             return workspace_dir
                 .filter(|workspace_dir| *workspace_dir != root)
-                .map(|workspace_dir| {
-                    workspace_dir
-                        .join("node_modules")
-                        .join(name)
-                })
+                .map(|workspace_dir| workspace_dir.join("node_modules").join(name))
                 .filter(|candidate| candidate.join("package.json").is_file());
         }
         if workspace_dir.is_some_and(|workspace_dir| current == workspace_dir) {
@@ -291,10 +286,7 @@ fn root_bundle_dep_names(manifest: &Value) -> Vec<String> {
 fn nested_bundle_dep_names(manifest: &Value) -> Vec<String> {
     let mut names = Vec::new();
     for field in ["dependencies", "optionalDependencies"] {
-        if let Some(map) = manifest
-            .get(field)
-            .and_then(Value::as_object)
-        {
+        if let Some(map) = manifest.get(field).and_then(Value::as_object) {
             names.extend(map.keys().cloned());
         }
     }

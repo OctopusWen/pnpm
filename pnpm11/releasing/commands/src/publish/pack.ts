@@ -415,7 +415,7 @@ export async function api (opts: PackOptions): Promise<PackResult> {
     manifest: publishManifest as Record<string, unknown>,
     workspaceDir: opts.workspaceDir,
   })
-  const filesMap = Object.fromEntries(files.map((file) => [`package/${file}`, path.join(dir, file)]))
+  const filesMap = Object.fromEntries(files.map((file) => [`package/${normalizeBundledPath(file)}`, path.join(dir, file)]))
   // cspell:disable-next-line
   if (opts.workspaceDir != null && dir !== opts.workspaceDir && !files.some((file) => /^LICEN[CS]E(?:\..+)?$/i.test(path.basename(file)))) {
     const { workspaceDir } = opts
@@ -621,6 +621,14 @@ async function packPkg (opts: {
 type PackedEntry =
   | { name: string, source: string }
   | { name: string, content: string }
+
+function normalizeBundledPath (file: string): string {
+  let relativePath = file
+  while (relativePath.startsWith('../')) {
+    relativePath = relativePath.slice(3)
+  }
+  return relativePath.startsWith('node_modules/') ? relativePath : file
+}
 
 /**
  * Every tar entry under the name it is packed as, ordered for compression.

@@ -46,7 +46,7 @@ use pnpm_exportable_manifest::{
     read_readme_file,
 };
 use pnpm_fs::lexical_normalize;
-use pnpm_fs_packlist::{PacklistError, PacklistOptions, packlist_with_options};
+use pnpm_fs_packlist::{PacklistError, PacklistOptions, packlist_with_sources};
 use pnpm_hooks::{HookContext, LogFn, PnpmfileHooks};
 use pnpm_package_manifest::{PackageManifestError, is_truthy, safe_read_package_json_from_dir};
 use pnpm_package_name::is_valid_old_npm_package_name;
@@ -199,9 +199,7 @@ where
     // The size pass must run before `postpack`, which may delete
     // prepack-generated files that were packed. See pnpm/pnpm#12775.
     let unpacked_size = unpacked_size::<Sys>(&files_map, manifest_json.len() as u64)?
-        + opts
-            .output
-            .injected_files
+        + opts.output.injected_files
             .iter()
             .map(|(_, bytes)| bytes.len() as u64)
             .sum::<u64>();
@@ -215,8 +213,11 @@ where
         };
         write_tarball::<Sys>(&opts.output, &source, &packed).await?;
         if !opts.scripts.ignore {
-            opts.scripts
-                .run_if_present::<Reporter>(&opts.dir, &["postpack"], &source.entry_manifest)?;
+            opts.scripts.run_if_present::<Reporter>(
+                &opts.dir,
+                &["postpack"],
+                &source.entry_manifest,
+            )?;
         }
     }
 
@@ -242,8 +243,11 @@ async fn prepare_source<Reporter: self::Reporter>(
     let entry_manifest = read_manifest(&opts.dir)?;
     prevent_bundled_dependencies_with_pnp(opts.manifest.node_linker, &entry_manifest)?;
     if !opts.scripts.ignore {
-        opts.scripts
-            .run_if_present::<Reporter>(&opts.dir, &["prepack", "prepare"], &entry_manifest)?;
+        opts.scripts.run_if_present::<Reporter>(
+            &opts.dir,
+            &["prepack", "prepare"],
+            &entry_manifest,
+        )?;
     }
 
     // The publish directory may differ from the project root when
@@ -259,10 +263,7 @@ async fn prepare_source<Reporter: self::Reporter>(
     prevent_bundled_dependencies_with_pnp(opts.manifest.node_linker, &manifest)?;
     let name = packed_identity(&manifest)?;
 
-    let mut publish_manifest = opts
-        .manifest
-        .export::<Reporter>(&opts.dir, &dir, &manifest)
-        .await?;
+    let mut publish_manifest = opts.manifest.export::<Reporter>(&opts.dir, &dir, &manifest).await?;
 
     let (normalized_name, published_version) = published_identity(&mut publish_manifest, name)?;
     Ok(PackSource {
@@ -279,13 +280,16 @@ fn packed_files_map(
     opts: &PackOptions,
     source: &PackSource,
 ) -> Result<indexmap::IndexMap<String, PathBuf>, PackError> {
-    let files = packlist_with_options(
+    let files = packlist_with_sources(
         &source.dir,
         &source.publish_manifest,
-        PacklistOptions { workspace_dir: opts.workspace_dir.as_deref() },
+        PacklistOptions {
+            workspace_dir: opts.workspace_dir.as_deref(),
+            bundled_dependencies_dir: Some(&opts.dir),
+        },
     )
     .map_err(PackError::Packlist)?;
-    let mut files_map = build_files_map(&source.dir, opts.workspace_dir.as_deref(), &files);
+    let mut files_map = build_files_map(files);
     inject_workspace_license(opts, &source.dir, &mut files_map);
     // A composed entry supersedes any same-named on-disk file (e.g. a stale
     // committed CHANGELOG.md), so drop it from the file map before packing.
@@ -450,10 +454,7 @@ fn prevent_bundled_dependencies_with_pnp(
         return Ok(());
     }
     for field in ["bundledDependencies", "bundleDependencies"] {
-        if manifest
-            .get(field)
-            .is_some_and(is_truthy)
-        {
+        if manifest.get(field).is_some_and(is_truthy) {
             return Err(PackError::BundledDependenciesWithPnp {
                 field,
                 node_linker: node_linker_str(node_linker),

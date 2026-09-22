@@ -86,9 +86,12 @@ fn bundle_dependency_symlink_to_workspace_package_is_included() {
         "version": "1.0.0",
         "bundleDependencies": ["bundled"],
     });
-    let out =
-        packlist_with_options(&root, &manifest, PacklistOptions { workspace_dir: Some(workspace) })
-            .unwrap();
+    let out = packlist_with_options(
+        &root,
+        &manifest,
+        PacklistOptions { workspace_dir: Some(workspace), ..Default::default() },
+    )
+    .unwrap();
 
     assert!(out.contains(&"node_modules/bundled/index.js".to_string()));
 }

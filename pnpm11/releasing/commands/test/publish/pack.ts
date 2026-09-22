@@ -190,27 +190,39 @@ test('pack: bundles transitive dependencies of bundled dependencies (hoisted)', 
   expect(fs.existsSync('package/node_modules/nested/index.js')).toBeTruthy()
 })
 
-test('pack: bundles dependencies with the isolated linker', async () => {
-  prepare({
+test.each([false, true])('pack: bundles workspace dependencies with the isolated linker (publish directory: %s)', async (publishDirectory) => {
+  const manifest = {
     name: 'bundled-deps-without-node-linker-hoisted',
     version: '0.0.0',
     bundledDependencies: ['bundled-dep'],
-  })
-
-  fs.mkdirSync('node_modules/bundled-dep', { recursive: true })
-  fs.writeFileSync('node_modules/bundled-dep/package.json', JSON.stringify({ name: 'bundled-dep', version: '1.0.0' }), 'utf8')
-  fs.writeFileSync('node_modules/bundled-dep/index.js', 'module.exports = 42', 'utf8')
+  }
+  preparePackages([
+    { ...manifest, publishConfig: publishDirectory ? { directory: 'dist' } : undefined },
+    { name: 'bundled-dep', version: '1.0.0' },
+  ])
+  const workspaceDir = process.cwd()
+  writeYamlFileSync('pnpm-workspace.yaml', { packages: ['*'] })
+  fs.writeFileSync('bundled-dep/index.js', 'module.exports = 42', 'utf8')
+  process.chdir(manifest.name)
+  fs.mkdirSync('node_modules')
+  fs.symlinkSync(path.join(workspaceDir, 'bundled-dep'), 'node_modules/bundled-dep', 'junction')
+  if (publishDirectory) {
+    fs.mkdirSync('dist')
+    fs.writeFileSync('dist/package.json', JSON.stringify(manifest), 'utf8')
+  }
 
   await pack.handler({
     ...DEFAULT_OPTS,
     nodeLinker: 'isolated',
+    workspaceDir,
     argv: { original: [] },
     dir: process.cwd(),
     extraBinPaths: [],
+    packDestination: process.cwd(),
   })
 
   await tar.x({ file: 'bundled-deps-without-node-linker-hoisted-0.0.0.tgz' })
-  expect(fs.existsSync('package/node_modules/bundled-dep/index.js')).toBeTruthy()
+  expect(fs.readFileSync('package/node_modules/bundled-dep/index.js', 'utf8')).toBe('module.exports = 42')
 })
 
 test('pack rejects bundled dependencies with the PnP linker', async () => {
