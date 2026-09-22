@@ -1,13 +1,13 @@
-//! Literal-star matching and ordered include/ignore pattern lists.
+//! Glob matching and ordered include/ignore pattern lists.
 //!
-//! The pattern syntax is intentionally tiny: `*` is the only wildcard
-//! (matching any sequence of characters, including empty), every other
-//! character is matched literally. Pattern lists also interpret a leading
-//! `!` as an ignore rule; [`WildcardMatcher`] treats it literally.
+//! The pattern syntax is intentionally tiny: `*` matches any sequence of
+//! characters (including empty), `?` matches one character, and every other
+//! character is matched literally. Pattern lists also interpret a leading `!`
+//! as an ignore rule; [`WildcardMatcher`] treats it literally.
 //!
-//! The glob matcher is hand-rolled rather than backed by a regex engine:
-//! the only wildcard is `*`, so a literal "starts with", "ends with", and
-//! "contains in order" walk is enough.
+//! The glob matcher is hand-rolled rather than backed by a regex engine.
+//! Patterns without `?` use a literal-segment walk; the character-aware
+//! fallback handles `?` patterns.
 
 use std::sync::Arc;
 
@@ -98,23 +98,19 @@ impl MatcherImpl {
 
 /// The first include pattern that matches, by position.
 fn first_include(patterns: &[CompiledPattern], input: &str) -> Option<usize> {
-    patterns
-        .iter()
-        .position(|pattern| {
-            debug_assert!(!pattern.is_ignore);
-            pattern.matches(input)
-        })
+    patterns.iter().position(|pattern| {
+        debug_assert!(!pattern.is_ignore);
+        pattern.matches(input)
+    })
 }
 
 /// Position `0` unless an ignore pattern matches: with no include rules,
 /// everything the ignores leave alone is included.
 fn none_ignores(patterns: &[CompiledPattern], input: &str) -> Option<usize> {
-    let ignored = patterns
-        .iter()
-        .any(|pattern| {
-            debug_assert!(pattern.is_ignore);
-            pattern.matches(input)
-        });
+    let ignored = patterns.iter().any(|pattern| {
+        debug_assert!(pattern.is_ignore);
+        pattern.matches(input)
+    });
     (!ignored).then_some(0)
 }
 
@@ -179,10 +175,8 @@ fn compile_many(patterns: &[String]) -> MatcherImpl {
             compiled.push(CompiledPattern { glob: WildcardMatcher::new(rest), is_ignore: true });
         } else {
             has_include = true;
-            compiled.push(CompiledPattern {
-                glob: WildcardMatcher::new(pattern),
-                is_ignore: false,
-            });
+            compiled
+                .push(CompiledPattern { glob: WildcardMatcher::new(pattern), is_ignore: false });
         }
     }
     let arc: Arc<[CompiledPattern]> = compiled.into();
@@ -198,8 +192,8 @@ fn compile_many(patterns: &[String]) -> MatcherImpl {
     }
 }
 
-/// A compiled glob pattern. The only wildcard is `*` (matches any
-/// sequence including empty); every other character is literal. The
+/// A compiled glob pattern. `*` matches any sequence including empty,
+/// `?` matches one character, and every other character is literal. The
 /// match is anchored — pattern must consume the whole input.
 
 #[derive(Clone)]
@@ -209,6 +203,7 @@ pub struct WildcardMatcher {
     /// literal `foo` it is `["foo"]` and `had_wildcard` is false.
     segments: Arc<[String]>,
     had_wildcard: bool,
+    question_pattern: Option<Arc<[char]>>,
 }
 
 impl WildcardMatcher {
@@ -220,12 +215,21 @@ impl WildcardMatcher {
             .map(str::to_owned)
             .collect();
         let had_wildcard = segments.len() > 1;
-        WildcardMatcher { segments: segments.into(), had_wildcard }
+        let question_pattern = pattern.contains('?').then(|| {
+            pattern
+                .chars()
+                .collect::<Vec<_>>()
+                .into()
+        });
+        WildcardMatcher { segments: segments.into(), had_wildcard, question_pattern }
     }
 
     /// Returns whether the pattern consumes the whole input.
     #[must_use]
     pub fn matches(&self, input: &str) -> bool {
+        if let Some(pattern) = &self.question_pattern {
+            return matches_question_pattern(pattern, input);
+        }
         if !self.had_wildcard {
             return self.segments[0] == input;
         }
@@ -241,6 +245,49 @@ impl WildcardMatcher {
         // middle segments greedily.
         contains_in_order(middle, &self.segments[1..self.segments.len() - 1])
     }
+}
+
+fn matches_question_pattern(pattern: &[char], input: &str) -> bool {
+    let mut pattern_index = 0;
+    let mut input_index = 0;
+    let mut star_pattern_index = None;
+    let mut star_input_index = 0;
+
+    while input_index < input.len() {
+        match pattern.get(pattern_index) {
+            Some('?') => {
+                pattern_index += 1;
+                input_index = next_char_index(input, input_index);
+            }
+            Some('*') => {
+                star_pattern_index = Some(pattern_index);
+                pattern_index += 1;
+                star_input_index = input_index;
+            }
+            Some(&literal) if input[input_index..].starts_with(literal) => {
+                pattern_index += 1;
+                input_index = next_char_index(input, input_index);
+            }
+            _ => {
+                let Some(star) = star_pattern_index else { return false };
+                star_input_index = next_char_index(input, star_input_index);
+                input_index = star_input_index;
+                pattern_index = star + 1;
+            }
+        }
+    }
+
+    pattern[pattern_index..]
+        .iter()
+        .all(|character| *character == '*')
+}
+
+fn next_char_index(input: &str, index: usize) -> usize {
+    let character = input[index..]
+        .chars()
+        .next()
+        .expect("input index must point at a character");
+    index + character.len_utf8()
 }
 
 /// Whether `segments` all occur in `input`, in order and without overlap.

@@ -22,6 +22,13 @@ test('matcher()', () => {
     expect(match('abc')).toBe(true)
   }
   {
+    const match = createMatcher(['a?c'])
+    expect(match('abc')).toBe(true)
+    expect(match('a🐙c')).toBe(true)
+    expect(match('ac')).toBe(false)
+    expect(match('abbc')).toBe(false)
+  }
+  {
     const match = createMatcher(['*-positive'])
     expect(match('is-positive')).toBe(true)
   }
@@ -68,6 +75,13 @@ test('createMatcherWithIndex()', () => {
   {
     const match = createMatcherWithIndex(['a*c'])
     expect(match('abc')).toBe(0)
+  }
+  {
+    const match = createMatcherWithIndex(['a?c'])
+    expect(match('abc')).toBe(0)
+    expect(match('a🐙c')).toBe(0)
+    expect(match('ac')).toBe(-1)
+    expect(match('abbc')).toBe(-1)
   }
   {
     const match = createMatcherWithIndex(['*-positive'])

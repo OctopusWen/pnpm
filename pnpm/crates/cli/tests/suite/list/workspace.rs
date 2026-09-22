@@ -34,6 +34,13 @@ fn recursive_json_combines_projects_with_separate_lockfiles() {
     assert_eq!(projects[1]["dependencies"][HELLO]["version"], "1.0.0");
 
     let output =
+        run_ok(&workspace, &["-r", "--filter", "project-?", "list", "--json", "--depth", "-1"]);
+    let projects: Vec<Value> = serde_json::from_str(&output).unwrap();
+    assert_eq!(projects.len(), 2, "? must match one character in package-name filters");
+    assert_eq!(projects[0]["name"], "project-1");
+    assert_eq!(projects[1]["name"], "project-2");
+
+    let output =
         run_ok(&workspace, &["-r", "--filter", "project-*", "list", "--json", "--depth", "-1"]);
     let projects: Vec<Value> = serde_json::from_str(&output).unwrap();
     dbg!(&projects);
@@ -52,8 +59,16 @@ fn recursive_json_combines_projects_with_separate_lockfiles() {
     assert_eq!(projects[0]["name"], "project-2");
     assert_eq!(projects[0]["dependencies"][HELLO]["version"], "1.0.0");
     assert_eq!(
-        canonical(Path::new(projects[0]["dependencies"][HELLO]["path"].as_str().unwrap())),
-        canonical(&workspace.join("packages/project-2/node_modules").join(HELLO)),
+        canonical(Path::new(
+            projects[0]["dependencies"][HELLO]["path"]
+                .as_str()
+                .unwrap()
+        )),
+        canonical(
+            &workspace
+                .join("packages/project-2/node_modules")
+                .join(HELLO)
+        ),
     );
     assert_eq!(
         projects[0]["dependencies"][HELLO]["description"],
@@ -99,7 +114,11 @@ fn recursive_list_uses_each_projects_modules_directory() {
         .zip(["packages/project-1/custom_modules", "packages/project-2/node_modules"])
     {
         assert_eq!(
-            canonical(Path::new(project["dependencies"][HELLO]["path"].as_str().unwrap())),
+            canonical(Path::new(
+                project["dependencies"][HELLO]["path"]
+                    .as_str()
+                    .unwrap()
+            )),
             canonical(&workspace.join(modules_path).join(HELLO)),
         );
         assert_eq!(
@@ -110,7 +129,12 @@ fn recursive_list_uses_each_projects_modules_directory() {
 
     let output = run_ok(&workspace, &["-r", "--filter", "project-*", "list", "--long"]);
     eprintln!("long output: {output}");
-    assert_eq!(output.matches("A package with a hello world js bin").count(), 2);
+    assert_eq!(
+        output
+            .matches("A package with a hello world js bin")
+            .count(),
+        2
+    );
 
     let output = run_ok(&workspace, &["-r", "--filter", "project-*", "list", "--parseable"]);
     eprintln!("parseable output: {output}");
@@ -125,9 +149,17 @@ fn recursive_list_uses_each_projects_modules_directory() {
         paths,
         vec![
             canonical(&workspace.join("packages/project-1")),
-            canonical(&workspace.join("packages/project-1/custom_modules").join(HELLO)),
+            canonical(
+                &workspace
+                    .join("packages/project-1/custom_modules")
+                    .join(HELLO)
+            ),
             canonical(&workspace.join("packages/project-2")),
-            canonical(&workspace.join("packages/project-2/node_modules").join(HELLO)),
+            canonical(
+                &workspace
+                    .join("packages/project-2/node_modules")
+                    .join(HELLO)
+            ),
         ],
     );
 }
@@ -312,16 +344,35 @@ fn changed_files_ignore_pattern_is_respected() {
     git(&["remote", "add", "origin", &remote.to_string_lossy()]);
     git(&["push", "-u", "origin", "main"]);
 
-    fs::write(workspace.join("project-2-change-is-never-ignored").join("index.js"), "")
-        .expect("write changed file");
-    fs::write(workspace.join("project-3-ignored-by-pattern").join("index.spec.js"), "")
-        .expect("write changed file");
-    fs::write(workspace.join("project-3-ignored-by-pattern").join("README.md"), "")
-        .expect("write changed file");
-    let buildscript_dir = workspace.join("project-4-ignored-by-pattern").join("a/b/c");
+    fs::write(
+        workspace
+            .join("project-2-change-is-never-ignored")
+            .join("index.js"),
+        "",
+    )
+    .expect("write changed file");
+    fs::write(
+        workspace
+            .join("project-3-ignored-by-pattern")
+            .join("index.spec.js"),
+        "",
+    )
+    .expect("write changed file");
+    fs::write(
+        workspace
+            .join("project-3-ignored-by-pattern")
+            .join("README.md"),
+        "",
+    )
+    .expect("write changed file");
+    let buildscript_dir = workspace
+        .join("project-4-ignored-by-pattern")
+        .join("a/b/c");
     fs::create_dir_all(&buildscript_dir).expect("create nested dirs");
     fs::write(buildscript_dir.join("buildscript.js"), "").expect("write changed file");
-    let cache_dir = workspace.join("project-5-ignored-by-pattern").join("cache/a/b");
+    let cache_dir = workspace
+        .join("project-5-ignored-by-pattern")
+        .join("cache/a/b");
     fs::create_dir_all(&cache_dir).expect("create nested dirs");
     fs::write(cache_dir.join("index.js"), "").expect("write changed file");
     git(&["add", "."]);
@@ -334,8 +385,9 @@ fn changed_files_ignore_pattern_is_respected() {
     );
 
     let changed_project_names = |extra_args: &[&str]| {
-        let pacquet =
-            Command::cargo_bin("pnpm").expect("find the pnpm binary").with_current_dir(&workspace);
+        let pacquet = Command::cargo_bin("pnpm")
+            .expect("find the pnpm binary")
+            .with_current_dir(&workspace);
         recursive_project_names(pacquet, &[&["--filter", "[origin/main]"], extra_args].concat())
     };
 
@@ -476,7 +528,9 @@ fn list_only_projects_shows_only_projects() {
         ("c", json!({ "name": "@scope/c", "version": "1.0.0" })),
     ];
     for (dir_name, manifest) in &packages {
-        let dir = workspace.join("packages").join(dir_name);
+        let dir = workspace
+            .join("packages")
+            .join(dir_name);
         fs::create_dir_all(&dir).expect("create package dir");
         fs::write(dir.join("package.json"), manifest.to_string()).expect("write package.json");
     }
