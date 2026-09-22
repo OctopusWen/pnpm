@@ -37,6 +37,7 @@ use manifest_entry::is_manifest_entry;
 use miette::Diagnostic;
 use pnpm_catalogs_types::Catalogs;
 use pnpm_cmd_shim::get_bins_from_package_manifest;
+use pnpm_config::NodeLinker;
 use pnpm_executor::{
     LifecycleScriptError, RunPostinstallHooks, ScriptsPrependNodePath, run_lifecycle_hook,
 };
@@ -47,7 +48,7 @@ use pnpm_exportable_manifest::{
 use pnpm_fs::lexical_normalize;
 use pnpm_fs_packlist::{PacklistError, PacklistOptions, packlist_with_options};
 use pnpm_hooks::{HookContext, LogFn, PnpmfileHooks};
-use pnpm_package_manifest::{PackageManifestError, safe_read_package_json_from_dir};
+use pnpm_package_manifest::{PackageManifestError, is_truthy, safe_read_package_json_from_dir};
 use pnpm_package_name::is_valid_old_npm_package_name;
 use pnpm_reporter::{HookLog, LogEvent, LogLevel, Reporter};
 use serde_json::Value;
@@ -105,6 +106,15 @@ pub enum PackError {
 
     #[diagnostic(transparent)]
     ReadManifest(#[error(source)] PackageManifestError),
+
+    #[display("{field} does not work with \"nodeLinker: {node_linker}\"")]
+    #[diagnostic(
+        code(ERR_PNPM_BUNDLED_DEPENDENCIES_WITHOUT_HOISTED),
+        help(
+            "Add \"nodeLinker: hoisted\" to pnpm-workspace.yaml or delete {field} from the root package.json to resolve this error"
+        )
+    )]
+    BundledDependenciesWithPnp { field: &'static str, node_linker: &'static str },
 
     #[display("Package name is not defined in the {MANIFEST_FILE_NAME}.")]
     #[diagnostic(code(ERR_PNPM_PACKAGE_NAME_NOT_FOUND))]
@@ -230,6 +240,7 @@ async fn prepare_source<Reporter: self::Reporter>(
     opts: &PackOptions,
 ) -> Result<PackSource, PackError> {
     let entry_manifest = read_manifest(&opts.dir)?;
+    prevent_bundled_dependencies_with_pnp(opts.manifest.node_linker, &entry_manifest)?;
     if !opts.scripts.ignore {
         opts.scripts
             .run_if_present::<Reporter>(&opts.dir, &["prepack", "prepare"], &entry_manifest)?;
@@ -245,6 +256,7 @@ async fn prepare_source<Reporter: self::Reporter>(
     // Re-read the manifest from `dir`: a `prepack` / `prepare` script
     // may have rewritten it.
     let manifest = read_manifest(&dir)?;
+    prevent_bundled_dependencies_with_pnp(opts.manifest.node_linker, &manifest)?;
     let name = packed_identity(&manifest)?;
 
     let mut publish_manifest = opts
@@ -428,6 +440,35 @@ fn publish_config_directory(manifest: &Value) -> Option<&str> {
         .and_then(|config| config.get("directory"))
         .and_then(Value::as_str)
         .filter(|directory| !directory.is_empty())
+}
+
+fn prevent_bundled_dependencies_with_pnp(
+    node_linker: NodeLinker,
+    manifest: &Value,
+) -> Result<(), PackError> {
+    if node_linker != NodeLinker::Pnp {
+        return Ok(());
+    }
+    for field in ["bundledDependencies", "bundleDependencies"] {
+        if manifest
+            .get(field)
+            .is_some_and(is_truthy)
+        {
+            return Err(PackError::BundledDependenciesWithPnp {
+                field,
+                node_linker: node_linker_str(node_linker),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn node_linker_str(node_linker: NodeLinker) -> &'static str {
+    match node_linker {
+        NodeLinker::Isolated => "isolated",
+        NodeLinker::Hoisted => "hoisted",
+        NodeLinker::Pnp => "pnp",
+    }
 }
 
 mod output;

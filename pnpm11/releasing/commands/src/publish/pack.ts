@@ -346,6 +346,7 @@ export function resolvePackOutput (
 
 export async function api (opts: PackOptions): Promise<PackResult> {
   const { manifest: entryManifest, fileName: manifestFileName } = await readProjectManifest(opts.dir, opts)
+  preventBundledDependenciesWithPnpNodeLinker(opts.nodeLinker, entryManifest)
   const _runScriptsIfPresent = runScriptsIfPresent.bind(null, {
     depPath: opts.dir,
     extraBinPaths: opts.extraBinPaths,
@@ -367,6 +368,7 @@ export async function api (opts: PackOptions): Promise<PackResult> {
     : opts.dir
   // always read the latest manifest, as "prepack" or "prepare" script may modify package manifest.
   const { manifest } = await readProjectManifest(dir, opts)
+  preventBundledDependenciesWithPnpNodeLinker(opts.nodeLinker, manifest)
   if (!manifest.name) {
     throw new PnpmError('PACKAGE_NAME_NOT_FOUND', `Package name is not defined in the ${manifestFileName}.`)
   }
@@ -561,6 +563,18 @@ async function composeRegistryChangelog (opts: PackOptions, pkgName: string, pub
 function stripBuildMetadata (version: string): string {
   const plusIndex = version.indexOf('+')
   return plusIndex === -1 ? version : version.slice(0, plusIndex)
+}
+
+function preventBundledDependenciesWithPnpNodeLinker (nodeLinker: Config['nodeLinker'], manifest: ProjectManifest): void {
+  if (nodeLinker !== 'pnp') return
+  for (const key of ['bundledDependencies', 'bundleDependencies'] as const) {
+    const bundledDependencies = manifest[key]
+    if (bundledDependencies) {
+      throw new PnpmError('BUNDLED_DEPENDENCIES_WITHOUT_HOISTED', `${key} does not work with "nodeLinker: ${nodeLinker}"`, {
+        hint: `Add "nodeLinker: hoisted" to pnpm-workspace.yaml or delete ${key} from the root package.json to resolve this error`,
+      })
+    }
+  }
 }
 
 async function packPkg (opts: {

@@ -213,6 +213,25 @@ test('pack: bundles dependencies with the isolated linker', async () => {
   expect(fs.existsSync('package/node_modules/bundled-dep/index.js')).toBeTruthy()
 })
 
+test('pack rejects bundled dependencies with the PnP linker', async () => {
+  prepare({
+    name: 'bundled-deps-with-pnp-linker',
+    version: '0.0.0',
+    bundledDependencies: [],
+  })
+
+  await expect(pack.handler({
+    ...DEFAULT_OPTS,
+    nodeLinker: 'pnp',
+    argv: { original: [] },
+    dir: process.cwd(),
+    extraBinPaths: [],
+  })).rejects.toMatchObject({
+    code: 'ERR_PNPM_BUNDLED_DEPENDENCIES_WITHOUT_HOISTED',
+    message: 'bundledDependencies does not work with "nodeLinker: pnp"',
+  })
+})
+
 describe('pack: package with custom tarball path', () => {
   beforeAll(() => {
     prepare({

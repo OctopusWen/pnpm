@@ -596,6 +596,23 @@ fn bundle_dependencies_false_is_allowed_without_hoisted() {
 }
 
 #[test]
+fn bundled_dependencies_with_pnp_are_rejected() {
+    let (_dir, mut opts) = fixture(&json!({
+        "name": "foo",
+        "version": "1.0.0",
+        "bundledDependencies": [],
+    }));
+    opts.manifest.node_linker = NodeLinker::Pnp;
+    assert!(matches!(
+        api::<SilentReporter, Host>(&opts),
+        Err(PackError::BundledDependenciesWithPnp {
+            field: "bundledDependencies",
+            node_linker: "pnp",
+        })
+    ));
+}
+
+#[test]
 fn out_template_substitutes_name_and_version_and_directory() {
     let (dir, mut opts) = fixture(&json!({ "name": "@scope/foo", "version": "2.0.0" }));
     opts.output.out = Some("artifacts/%s-%v.tgz".to_string());
