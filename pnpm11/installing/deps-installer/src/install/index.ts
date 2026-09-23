@@ -86,7 +86,6 @@ import {
   catalogResolutionIsStale,
   catalogResolutionsAreUpToDate,
   checkLinkedPackagesAreUpToDate,
-  checkLocalTarballDepsAreUpToDate,
   findPackageTarballIntegrityMismatch,
   getWorkspacePackagesByDirectory,
   satisfiesPackageManifest,
@@ -1715,11 +1714,6 @@ Note that in CI environments, this setting is enabled by default.`,
         lockfilePackages: ctx.wantedLockfile.packages,
         lockfileDir: opts.lockfileDir,
       })
-      const _checkLocalTarballDepsAreUpToDate = checkLocalTarballDepsAreUpToDate.bind(null, {
-        fileIntegrityCache: new Map(),
-        lockfilePackages: ctx.wantedLockfile.packages,
-        lockfileDir: opts.lockfileDir,
-      })
       const _satisfiesPackageManifest = satisfiesPackageManifest.bind(null, {
         autoInstallPeers: opts.autoInstallPeers,
         excludeLinksFromLockfile: opts.excludeLinksFromLockfile,
@@ -1753,12 +1747,6 @@ Note that in CI environments, this setting is enabled by default.`,
             if (!linkedResult.upToDate) {
               satisfies = false
               detailedReason = linkedResult.detailedReason
-            } else {
-              const tarballResult = await _checkLocalTarballDepsAreUpToDate(projectInfo)
-              if (!tarballResult.upToDate) {
-                satisfies = false
-                detailedReason = tarballResult.detailedReason
-              }
             }
           }
         }

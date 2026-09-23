@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 
 import { refToRelative } from '@pnpm/deps.path'
@@ -59,6 +60,13 @@ export async function checkLinkedPackagesAreUpToDate (
     depEntries.map(async ({ depField, depName }): Promise<CheckLinkedPackagesResult> => {
       const currentSpec = project.manifest[depField]![depName]
       const lockfileRef = project.snapshot[depField]![depName]
+      const isInjected = Boolean(
+        project.manifest.dependenciesMeta?.[depName]?.injected ||
+        project.snapshot.dependenciesMeta?.[depName]?.injected
+      )
+      if (isInjected) {
+        return { upToDate: true }
+      }
       if (refIsLocalDirectory(project.snapshot.specifiers[depName])) {
         // When a file: specifier resolves to link: in the lockfile
         // (e.g. injected self-references), it's a local link with no
@@ -98,7 +106,7 @@ export async function checkLinkedPackagesAreUpToDate (
         ? path.join(project.dir, lockfileRef.slice(5))
         : workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
       if (!linkedDir) {
-        if (!isLinked && workspacePackages?.has(pkgName)) {
+        if (!isLinked && !lockfileRef.startsWith('file:') && !lockfileRef.includes('@file:') && workspacePackages?.has(pkgName)) {
           const pkgs = Array.from(workspacePackages.get(pkgName)!.values())
           const matchingPkg = pkgs.find(p =>
             availableRange === '*' || availableRange === '^' || availableRange === '~' ||
@@ -170,9 +178,12 @@ async function checkLocalFileDepUpToDate (
   const localDepDir = path.join(lockfileDir, (pkgSnapshot.resolution as DirectoryResolution).directory)
   const manifest = await safeReadPackageJsonFromDir(localDepDir)
   if (!manifest) {
+    if (fs.existsSync(localDepDir)) {
+      return { upToDate: true }
+    }
     return {
       upToDate: false,
-      detailedReason: `Cannot read package manifest for local dependency "${depName}" at "${localDepDir}"`,
+      detailedReason: `Cannot find local dependency directory "${depName}" at "${localDepDir}"`,
     }
   }
   for (const depField of DEPENDENCIES_OR_PEER_FIELDS) {
@@ -181,7 +192,7 @@ async function checkLocalFileDepUpToDate (
     const lockfileDeps = pkgSnapshot[depField] ?? {}
 
     // Lock file has more dependencies than the current manifest, e.g. some dependencies are removed.
-    const removedDep = Object.keys(lockfileDeps).find(d => !manifestDeps[d])
+    const removedDep = Object.keys(lockfileDeps).find(d => !manifestDeps[d] && !manifest.peerDependencies?.[d])
     if (removedDep) {
       return {
         upToDate: false,
@@ -201,6 +212,15 @@ async function checkLocalFileDepUpToDate (
       const currentSpec = manifestDeps[d]
       // We do not care about the link dependencies of local dependency.
       if (currentSpec.startsWith('file:') || currentSpec.startsWith('link:') || currentSpec.startsWith('workspace:')) continue
+      if (depField === 'peerDependencies') {
+        if (lockfileDeps[d] !== currentSpec) {
+          return {
+            upToDate: false,
+            detailedReason: `Local dependency "${depName}" peer dependency "${d}@${lockfileDeps[d]}" does not match "${currentSpec}"`,
+          }
+        }
+        continue
+      }
       if (!semver.satisfies(lockfileDeps[d], getVersionRange(currentSpec), { loose: true })) {
         return {
           upToDate: false,
