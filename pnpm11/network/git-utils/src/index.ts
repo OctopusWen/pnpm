@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 
 import { safeExeca as execa } from 'execa'
@@ -20,13 +21,16 @@ export async function isGitRepo (opts: GitCwdOptions = {}): Promise<boolean> {
 
 export async function getCurrentBranch (opts: GitCwdOptions = {}): Promise<string | null> {
   const branch = readBranchFromHeadFile(opts.cwd)
-  if (branch !== undefined) return branch
+  if (branch !== undefined) {
+    if (branch !== null) return branch
+    return getBranchFromCiEnv(opts.cwd)
+  }
   try {
     const { stdout } = await execa('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: opts.cwd })
     return stdout as string
   } catch {
     // Command will fail with code 1 if the HEAD is detached.
-    return null
+    return getBranchFromCiEnv(opts.cwd)
   }
 }
 
@@ -62,6 +66,115 @@ export async function isRemoteHistoryClean (opts: GitCwdOptions = {}): Promise<b
   }
   if (history && history !== '0') {
     return false
+  }
+  return true
+}
+
+export function getBranchFromCiEnv (cwd?: string): string | null {
+  if (process.env.PNPM_GIT_BRANCH) {
+    return cleanBranchName(process.env.PNPM_GIT_BRANCH)
+  }
+  if (!isCiWorkspace(cwd)) {
+    return null
+  }
+  const branch =
+    process.env.GITHUB_HEAD_REF ||
+    (process.env.GITHUB_REF_TYPE !== 'tag' && process.env.GITHUB_REF_NAME) ||
+    process.env.CI_MERGE_REQUEST_SOURCE_BRANCH_NAME ||
+    process.env.CI_COMMIT_BRANCH ||
+    process.env.BUILDKITE_BRANCH ||
+    process.env.CIRCLE_BRANCH ||
+    process.env.BITBUCKET_PR_SOURCE_BRANCH ||
+    process.env.BITBUCKET_BRANCH ||
+    // cspell:disable-next-line
+    process.env.SYSTEM_PULLREQUEST_SOURCEBRANCH ||
+    // cspell:disable-next-line
+    process.env.BUILD_SOURCEBRANCHNAME ||
+    process.env.CHANGE_BRANCH ||
+    process.env.BRANCH_NAME ||
+    process.env.GIT_BRANCH ||
+    process.env.CI_BRANCH ||
+    (process.env.GITHUB_REF?.startsWith('refs/heads/') ? process.env.GITHUB_REF : null)
+
+  if (!branch) return null
+  return cleanBranchName(branch)
+}
+
+export async function getBranchCandidatesFromGit (opts: GitCwdOptions = {}): Promise<string[]> {
+  const env = await nonInteractiveGitEnv(opts)
+  const candidates: string[] = []
+
+  try {
+    const { stdout } = await execa('git', ['name-rev', '--name-only', '--no-undefined', '--exclude=tags/*', 'HEAD'], {
+      cwd: opts.cwd,
+      env,
+    })
+    const name = String(stdout).trim().replace(/[~^].*$/, '')
+    if (name && name !== 'undefined') {
+      const cleaned = cleanBranchName(name)
+      if (cleaned && cleaned !== 'HEAD') {
+        candidates.push(cleaned)
+      }
+    }
+  } catch {
+    // Gracefully handle detached HEAD or unsupported name-rev
+  }
+
+  try {
+    const { stdout } = await execa('git', ['branch', '-a', '--format=%(refname:short)', '--contains', 'HEAD'], {
+      cwd: opts.cwd,
+      env,
+    })
+    for (const line of String(stdout).split('\n')) {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('(') || trimmed.startsWith('HEAD detached')) continue
+      const cleaned = cleanBranchName(trimmed)
+      if (cleaned && cleaned !== 'HEAD' && !candidates.includes(cleaned)) {
+        candidates.push(cleaned)
+      }
+    }
+  } catch {
+    // Gracefully handle git errors
+  }
+
+  return candidates
+}
+
+function cleanBranchName (name: string): string {
+  const trimmed = name.trim()
+  if (trimmed.startsWith('refs/heads/')) {
+    return trimmed.slice('refs/heads/'.length)
+  }
+  if (trimmed.startsWith('remotes/origin/')) {
+    return trimmed.slice('remotes/origin/'.length)
+  }
+  if (trimmed.startsWith('origin/')) {
+    return trimmed.slice('origin/'.length)
+  }
+  return trimmed
+}
+
+function isCiWorkspace (cwd?: string): boolean {
+  if (!process.env.CI && !process.env.CONTINUOUS_INTEGRATION) {
+    return false
+  }
+  const targetDir = path.resolve(cwd ?? process.cwd())
+  const tmpDir = path.resolve(os.tmpdir())
+  if (targetDir === tmpDir || targetDir.startsWith(tmpDir + path.sep)) {
+    return false
+  }
+  const ciWorkspaces = [
+    process.env.GITHUB_WORKSPACE,
+    process.env.CI_PROJECT_DIR,
+    process.env.BUILDKITE_BUILD_CHECKOUT_PATH,
+    process.env.BITBUCKET_CLONE_DIR,
+  ].filter((p): p is string => Boolean(p))
+
+  if (ciWorkspaces.length > 0) {
+    return ciWorkspaces.some((ws) => {
+      const resolvedWs = path.resolve(ws)
+      return targetDir === resolvedWs || targetDir.startsWith(resolvedWs + path.sep)
+    })
   }
   return true
 }

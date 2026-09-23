@@ -170,3 +170,45 @@ fn a_failed_head_verification_is_not_detached() {
         "a failed Git query must not confirm detachment",
     );
 }
+
+#[test]
+fn ci_env_detection_respects_variables() {
+    let dir = TempDir::new().unwrap();
+    // PNPM_GIT_BRANCH override applies anywhere
+    // SAFETY: test-only environment variable mutation
+    unsafe {
+        std::env::set_var("PNPM_GIT_BRANCH", "refs/heads/custom-override");
+    }
+    assert_eq!(super::get_branch_from_ci_env(dir.path()).as_deref(), Some("custom-override"));
+    // SAFETY: test-only environment variable cleanup
+    unsafe {
+        std::env::remove_var("PNPM_GIT_BRANCH");
+    }
+}
+
+#[test]
+fn get_branch_candidates_parses_git_output() {
+    struct GitBranchOutput;
+    impl RunCommand for GitBranchOutput {
+        fn run(_: &str, args: &[&str], _: Option<&Path>) -> io::Result<CommandOutput> {
+            if args.contains(&"name-rev") {
+                Ok(CommandOutput {
+                    success: true,
+                    stdout: "feat/my-branch~2\n".to_string(),
+                    stderr: String::new(),
+                })
+            } else if args.contains(&"branch") {
+                Ok(CommandOutput {
+                    success: true,
+                    stdout: "(HEAD detached at 1234567)\nfeat/my-branch\nremotes/origin/main\n"
+                        .to_string(),
+                    stderr: String::new(),
+                })
+            } else {
+                Ok(CommandOutput { success: false, stdout: String::new(), stderr: String::new() })
+            }
+        }
+    }
+    let candidates = super::get_branch_candidates_from_git::<GitBranchOutput>(Path::new("."));
+    assert_eq!(candidates, vec!["feat/my-branch", "main"]);
+}
