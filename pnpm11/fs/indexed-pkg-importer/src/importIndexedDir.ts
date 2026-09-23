@@ -365,8 +365,13 @@ function mismatchReason (target: string, src: string): string | undefined {
     const targetStat = fs.lstatSync(target, { bigint: true })
     if (srcStat?.isSymbolicLink()) {
       if (!targetStat.isSymbolicLink()) return 'is not a symlink'
-      if (fs.readlinkSync(target) !== fs.readlinkSync(src)) return 'has a different symlink target'
-      return undefined
+      const targetLink = fs.readlinkSync(target)
+      const srcLink = fs.readlinkSync(src)
+      if (targetLink === srcLink) return undefined
+      const resolvedTarget = path.resolve(path.dirname(target), targetLink)
+      const resolvedSrc = path.resolve(path.dirname(src), srcLink)
+      if (resolvedTarget === resolvedSrc) return undefined
+      return 'has a different symlink target'
     }
     if (!targetStat.isFile()) return 'is not a regular file'
     const srcRegularStat = gfs.statSync(src, { bigint: true })

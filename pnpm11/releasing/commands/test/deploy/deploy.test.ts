@@ -1194,11 +1194,11 @@ test('deploy: preserves internal symlinks in deployed package', async () => {
   }, ['dist'])
 
   expect(fs.lstatSync('dist/symlink-file.txt').isSymbolicLink()).toBe(true)
-  expect(fs.readlinkSync('dist/symlink-file.txt')).toBe('real-file.txt')
+  expect(path.resolve('dist', fs.readlinkSync('dist/symlink-file.txt'))).toBe(path.resolve('dist', 'real-file.txt'))
   expect(fs.readFileSync('dist/symlink-file.txt', 'utf8')).toBe('hello from real file')
 
   expect(fs.lstatSync('dist/symlink-dir').isSymbolicLink()).toBe(true)
-  expect(fs.readlinkSync('dist/symlink-dir')).toBe('sub')
+  expect(path.resolve('dist', fs.readlinkSync('dist/symlink-dir'))).toBe(path.resolve('dist', 'sub'))
   expect(fs.readFileSync('dist/symlink-dir/nested.txt', 'utf8')).toBe('nested content')
 })
 
