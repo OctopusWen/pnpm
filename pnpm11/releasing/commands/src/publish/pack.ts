@@ -421,6 +421,12 @@ export async function api (opts: PackOptions): Promise<PackResult> {
     publishedName,
     publishedVersion: publishManifest.version,
   })
+  const binPaths = [
+    ...(await getBinsFromPackageManifest(publishManifest as DependencyManifest, dir)).map(({ path }) => path),
+    ...(manifest.publishConfig?.executableFiles ?? [])
+      .map((executableFile) => path.join(dir, executableFile)),
+  ]
+  await checkBinCrlf(binPaths, dir)
   const files = await packlist(dir, {
     manifest: publishManifest as Record<string, unknown>,
     workspaceDir: opts.workspaceDir,
@@ -491,11 +497,7 @@ export async function api (opts: PackOptions): Promise<PackResult> {
         modulesDir: path.join(opts.dir, 'node_modules'),
         packGzipLevel: opts.packGzipLevel,
         manifest: publishManifest,
-        bins: [
-          ...(await getBinsFromPackageManifest(publishManifest as DependencyManifest, dir)).map(({ path }) => path),
-          ...(manifest.publishConfig?.executableFiles ?? [])
-            .map((executableFile) => path.join(dir, executableFile)),
-        ],
+        bins: binPaths,
       })
       if (!opts.ignoreScripts) {
         await _runScriptsIfPresent(['postpack'], entryManifest)
@@ -699,4 +701,59 @@ function isFileExecutable (file: string): boolean {
     }
     throw err
   }
+}
+
+async function checkBinCrlf (
+  bins: string[],
+  dir: string
+): Promise<void> {
+  await Promise.all(bins.map(async (binPath) => {
+    if (await hasShebangWithCrlf(binPath)) {
+      const relativePath = path.relative(dir, binPath).replace(/\\/g, '/')
+      throw new PnpmError(
+        'BIN_CRLF',
+        `The bin file "${relativePath}" has a shebang line ending with CRLF (\\r\\n).`,
+        {
+          hint: `CRLF line endings on the shebang line break execution on Unix systems (/usr/bin/env: 'node\\r': No such file or directory). Convert line endings of "${relativePath}" to LF (\\n).`,
+        }
+      )
+    }
+  }))
+}
+
+async function hasShebangWithCrlf (filePath: string): Promise<boolean> {
+  let fileHandle: fs.promises.FileHandle | undefined
+  try {
+    fileHandle = await fs.promises.open(filePath, 'r')
+    const buffer = Buffer.alloc(4096)
+    const { bytesRead } = await fileHandle.read(buffer, 0, buffer.length, 0)
+    if (bytesRead < 2) return false
+    return bufferHasShebangWithCrlf(buffer.subarray(0, bytesRead))
+  } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (err?.code === 'ENOENT' || err?.code === 'EISDIR') {
+      return false
+    }
+    throw err
+  } finally {
+    await fileHandle?.close()
+  }
+}
+
+function bufferHasShebangWithCrlf (buf: Buffer | Uint8Array): boolean {
+  let start = 0
+  if (buf.length >= 3 && buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) {
+    start = 3
+  }
+  if (buf.length < start + 2 || buf[start] !== 0x23 || buf[start + 1] !== 0x21) {
+    return false
+  }
+  for (let i = start + 2; i < buf.length; i++) {
+    if (buf[i] === 0x0D) {
+      return true
+    }
+    if (buf[i] === 0x0A) {
+      return false
+    }
+  }
+  return false
 }

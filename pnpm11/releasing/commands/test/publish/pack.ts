@@ -1378,3 +1378,88 @@ test('pack: recursive pack with filter', async () => {
   expect(output).not.toContain('package: is-positive')
   expect(output).not.toContain('package: i-am-private')
 })
+
+test('pack: bin with CRLF shebang is rejected', async () => {
+  prepare({
+    name: 'test-bin-crlf',
+    version: '1.0.0',
+    bin: {
+      'test-bin': 'bin/foo.js',
+    },
+  })
+  fs.mkdirSync('bin')
+  fs.writeFileSync('bin/foo.js', '#!/usr/bin/env node\r\nconsole.log(1)\n')
+
+  await expect(pack.handler({
+    ...DEFAULT_OPTS,
+    argv: { original: [] },
+    dir: process.cwd(),
+    extraBinPaths: [],
+  })).rejects.toMatchObject({
+    code: 'ERR_PNPM_BIN_CRLF',
+    message: 'The bin file "bin/foo.js" has a shebang line ending with CRLF (\\r\\n).',
+    hint: 'CRLF line endings on the shebang line break execution on Unix systems (/usr/bin/env: \'node\\r\': No such file or directory). Convert line endings of "bin/foo.js" to LF (\\n).',
+  })
+})
+
+test('pack: bin with BOM and CRLF shebang is rejected', async () => {
+  prepare({
+    name: 'test-bin-bom-crlf',
+    version: '1.0.0',
+    bin: 'bin/foo.js',
+  })
+  fs.mkdirSync('bin')
+  fs.writeFileSync('bin/foo.js', '\uFEFF#!/usr/bin/env node\r\nconsole.log(1)\n')
+
+  await expect(pack.handler({
+    ...DEFAULT_OPTS,
+    argv: { original: [] },
+    dir: process.cwd(),
+    extraBinPaths: [],
+  })).rejects.toMatchObject({
+    code: 'ERR_PNPM_BIN_CRLF',
+    message: 'The bin file "bin/foo.js" has a shebang line ending with CRLF (\\r\\n).',
+  })
+})
+
+test('pack: bin with LF shebang and CRLF body is accepted', async () => {
+  prepare({
+    name: 'test-bin-lf-crlf-body',
+    version: '1.0.0',
+    bin: {
+      'test-bin': 'bin/foo.js',
+    },
+  })
+  fs.mkdirSync('bin')
+  fs.writeFileSync('bin/foo.js', '#!/usr/bin/env node\nconsole.log(1)\r\n')
+
+  await pack.handler({
+    ...DEFAULT_OPTS,
+    argv: { original: [] },
+    dir: process.cwd(),
+    extraBinPaths: [],
+  })
+
+  expect(fs.existsSync('test-bin-lf-crlf-body-1.0.0.tgz')).toBeTruthy()
+})
+
+test('pack: bin without shebang is accepted', async () => {
+  prepare({
+    name: 'test-bin-no-shebang',
+    version: '1.0.0',
+    bin: {
+      'test-bin': 'bin/foo.js',
+    },
+  })
+  fs.mkdirSync('bin')
+  fs.writeFileSync('bin/foo.js', 'console.log(1)\r\n')
+
+  await pack.handler({
+    ...DEFAULT_OPTS,
+    argv: { original: [] },
+    dir: process.cwd(),
+    extraBinPaths: [],
+  })
+
+  expect(fs.existsSync('test-bin-no-shebang-1.0.0.tgz')).toBeTruthy()
+})
