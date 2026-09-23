@@ -111,6 +111,21 @@ pub(super) fn place_entry<Reporter: self::Reporter>(
     store_path: &Path,
     target: &Path,
 ) -> Result<(), ImportIndexedDirError> {
+    if fs::symlink_metadata(store_path).is_ok_and(|meta| meta.file_type().is_symlink()) {
+        if placement == Placement::Repair && file_matches_store_entry(target, store_path) {
+            return Ok(());
+        }
+        clear_dir_blocking_file::<Host>(target)?;
+        let _ = fs::remove_file(target);
+        return pnpm_fs::copy_dirent(store_path, target)
+            .map_err(|error| {
+                ImportIndexedDirError::LinkFile(crate::link_file::LinkFileError::Import {
+                    from: store_path.to_path_buf(),
+                    to: target.to_path_buf(),
+                    error,
+                })
+            });
+    }
     match placement {
         Placement::Fresh => {
             import_into_fresh_target::<Reporter>(logged_methods, import_method, store_path, target)
@@ -293,13 +308,22 @@ pub(super) fn all_files_match(dir_path: &Path, cas_paths: &HashMap<String, PathB
 /// way pnpm's `allFilesMatch` does.
 pub(super) fn file_matches_store_entry(target: &Path, store_path: &Path) -> bool {
     let (Ok(target_meta), Ok(store_meta)) =
-        (fs::symlink_metadata(target), fs::metadata(store_path))
+        (fs::symlink_metadata(target), fs::symlink_metadata(store_path))
     else {
         return false;
     };
+    if store_meta.file_type().is_symlink() {
+        if !target_meta.file_type().is_symlink() {
+            return false;
+        }
+        return fs::read_link(target).ok() == fs::read_link(store_path).ok();
+    }
     if !target_meta.is_file() {
         return false;
     }
+    let Ok(store_meta) = fs::metadata(store_path) else {
+        return false;
+    };
     // Unix carries the file's identity in the stat results already.
     // Windows keeps it behind an open handle, which `same-file` opens —
     // worth two handles to spare a hardlinked package a full read on the

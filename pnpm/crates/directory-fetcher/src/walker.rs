@@ -242,6 +242,8 @@ pub(crate) fn resolve_paths_in_directory(
     let root = canonicalize_path(directory)?;
     for path in files_map.values_mut() {
         let original = path.clone();
+        let is_symlink =
+            fs::symlink_metadata(&original).is_ok_and(|meta| meta.file_type().is_symlink());
         let resolved = canonicalize_path(&original)?;
         if !resolved.starts_with(&root) {
             return Err(DirectoryFetcherError::PathOutsideDirectory {
@@ -249,7 +251,9 @@ pub(crate) fn resolve_paths_in_directory(
                 directory: root,
             });
         }
-        *path = resolved;
+        if !is_symlink {
+            *path = resolved;
+        }
     }
     Ok(())
 }

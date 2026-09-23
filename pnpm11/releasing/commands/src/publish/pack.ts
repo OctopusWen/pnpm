@@ -469,7 +469,12 @@ export async function api (opts: PackOptions): Promise<PackResult> {
     if (isManifestEntry(name)) {
       return Buffer.byteLength(JSON.stringify(publishManifest, null, 2))
     }
-    const stat = await fs.promises.stat(source)
+    let stat: fs.Stats
+    try {
+      stat = await fs.promises.lstat(source)
+    } catch {
+      return 0
+    }
     return stat.size
   }))
   const injectedSize = Object.values(injectedEntries).reduce((acc, content) => acc + Buffer.byteLength(content), 0)
@@ -613,6 +618,12 @@ async function packPkg (opts: {
   for (const entry of compressionOrderedEntries(filesMap, injectedEntries)) {
     if ('content' in entry) {
       pack.entry({ mode: 0o644, mtime, name: entry.name }, entry.content)
+      continue
+    }
+    const stat = fs.lstatSync(entry.source)
+    if (stat.isSymbolicLink()) {
+      const linkname = fs.readlinkSync(entry.source)
+      pack.entry({ mode: 0o777, mtime, name: entry.name, type: 'symlink', linkname })
       continue
     }
     const isExecutable = bins.some((bin) => path.relative(bin, entry.source) === '') || isFileExecutable(entry.source)

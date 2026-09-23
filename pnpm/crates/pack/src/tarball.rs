@@ -68,6 +68,13 @@ pub fn build_tarball<Sys: FsReadFile + FsIsExecutable>(
             EntrySource::Manifest(path) => (manifest_json, bin_mode::<Sys>(&bin_set, path)?),
             EntrySource::Injected(data) => (data, REGULAR_MODE),
             EntrySource::File(path) => {
+                if let Ok(meta) = std::fs::symlink_metadata(path)
+                    && meta.file_type().is_symlink()
+                {
+                    let target = std::fs::read_link(path)?;
+                    append_symlink(&mut builder, entry.name, &target)?;
+                    continue;
+                }
                 file_data = Sys::read_file(path)?;
                 (file_data.as_slice(), bin_mode::<Sys>(&bin_set, path)?)
             }
@@ -183,4 +190,17 @@ fn append_entry<Writer: Write>(
     header.set_mtime(REPRODUCIBLE_MTIME);
     // `append_data` sets the entry path and the header checksum.
     builder.append_data(&mut header, entry_name, data)
+}
+
+fn append_symlink<Writer: Write>(
+    builder: &mut tar::Builder<Writer>,
+    entry_name: &str,
+    target: &Path,
+) -> io::Result<()> {
+    let mut header = tar::Header::new_ustar();
+    header.set_entry_type(tar::EntryType::Symlink);
+    header.set_mode(0o777);
+    header.set_mtime(REPRODUCIBLE_MTIME);
+    header.set_size(0);
+    builder.append_link(&mut header, entry_name, target)
 }

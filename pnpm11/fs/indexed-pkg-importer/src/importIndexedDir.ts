@@ -169,6 +169,19 @@ function repairIndexedDir ({ importer, newDir, filenames }: IndexedDirImport): v
 // refused to overwrite.
 function replaceFileIfDifferent (importFile: ImportFile, src: string, dest: string): void {
   if (mismatchReason(dest, src) === undefined) return
+  try {
+    const srcStat = fs.lstatSync(src)
+    if (srcStat.isSymbolicLink()) {
+      clearDirBlockingFile(dest)
+      try {
+        fs.unlinkSync(dest)
+      } catch (err: unknown) {
+        if (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') throw err
+      }
+      copySymlink(src, dest)
+      return
+    }
+  } catch {}
   const tmp = pathTemp(dest)
   try {
     importFile(src, tmp)
@@ -345,15 +358,24 @@ function fileMatches (dir: string, f: string, src: string): boolean {
 // settles it without a read; the copy tier compares size first, then content.
 function mismatchReason (target: string, src: string): string | undefined {
   try {
+    let srcStat: fs.Stats | fs.BigIntStats | undefined
+    try {
+      srcStat = fs.lstatSync(src, { bigint: true })
+    } catch {}
     const targetStat = fs.lstatSync(target, { bigint: true })
+    if (srcStat?.isSymbolicLink()) {
+      if (!targetStat.isSymbolicLink()) return 'is not a symlink'
+      if (fs.readlinkSync(target) !== fs.readlinkSync(src)) return 'has a different symlink target'
+      return undefined
+    }
     if (!targetStat.isFile()) return 'is not a regular file'
-    const srcStat = gfs.statSync(src, { bigint: true })
+    const srcRegularStat = gfs.statSync(src, { bigint: true })
     const hasSameFileIdentity = targetStat.ino !== 0n &&
       targetStat.dev !== 0n &&
-      targetStat.ino === srcStat.ino &&
-      targetStat.dev === srcStat.dev
+      targetStat.ino === srcRegularStat.ino &&
+      targetStat.dev === srcRegularStat.dev
     if (hasSameFileIdentity) return undefined
-    if (targetStat.size !== srcStat.size) return 'has a different size'
+    if (targetStat.size !== srcRegularStat.size) return 'has a different size'
     if (!filesHaveEqualContents(target, src)) return 'has different content'
     return undefined
   } catch {
@@ -428,10 +450,42 @@ function tryImportIndexedDir (
       packageJsonSrc = src
       continue
     }
-    importFile(src, path.join(newDir, f))
+    importEntry(importFile, src, path.join(newDir, f))
   }
   if (packageJsonSrc !== undefined) {
-    importFileAtomic(packageJsonSrc, path.join(newDir, 'package.json'))
+    importEntry(importFileAtomic, packageJsonSrc, path.join(newDir, 'package.json'))
+  }
+}
+
+function importEntry (importFile: ImportFile, src: string, dest: string): void {
+  try {
+    const stat = fs.lstatSync(src)
+    if (stat.isSymbolicLink()) {
+      copySymlink(src, dest)
+      return
+    }
+  } catch {}
+  importFile(src, dest)
+}
+
+function copySymlink (src: string, dest: string): void {
+  const target = fs.readlinkSync(src)
+  let type: fs.symlink.Type | undefined
+  if (process.platform === 'win32') {
+    try {
+      const stat = fs.statSync(src)
+      type = stat.isDirectory() ? 'junction' : 'file'
+    } catch {
+      type = 'file'
+    }
+  }
+  try {
+    fs.symlinkSync(target, dest, type)
+  } catch (err: unknown) {
+    if (util.types.isNativeError(err) && 'code' in err && err.code === 'EEXIST') {
+      return
+    }
+    throw err
   }
 }
 

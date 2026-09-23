@@ -20,6 +20,8 @@ interface TreeNode {
   edgesOut: Map<string, Edge>
 }
 
+patchNpmPacklistWalker()
+
 export async function packlist (pkgDir: string, opts?: {
   manifest?: Record<string, unknown>
   workspaceDir?: string
@@ -41,7 +43,101 @@ export async function packlist (pkgDir: string, opts?: {
     ? { prefix: workspaceDir, workspaces: [resolvedPkgDir] }
     : undefined
   const files = await npmPacklist(tree, packlistOpts)
-  return files.map((file) => file.replace(/^\.[/\\]/, ''))
+  return files
+    .map((file) => file.replace(/^\.[/\\]/, ''))
+    .filter((file) => isInternalFileOrSymlink(resolvedPkgDir, file))
+}
+
+// cspell:ignore onstat
+function patchNpmPacklistWalker (): void {
+  const packlistAny = npmPacklist as unknown as {
+    Walker?: {
+      prototype?: {
+        onstat?: (opts: { st: fs.Stats }, callback: () => void) => void
+        processPackage?: (callback: () => void) => void
+      }
+    }
+    __symlinks_patched?: boolean
+  }
+  const walkerProto = packlistAny.Walker?.prototype
+  if (!walkerProto?.onstat || !walkerProto?.processPackage || packlistAny.__symlinks_patched) return
+  packlistAny.__symlinks_patched = true
+
+  const superProto = Object.getPrototypeOf(walkerProto) as {
+    onstat: (opts: { st: fs.Stats }, callback: () => void) => void
+  }
+  walkerProto.onstat = function (
+    this: unknown,
+    opts: { st: fs.Stats },
+    callback: () => void
+  ): void {
+    if (!opts.st.isFile() && !opts.st.isDirectory() && !opts.st.isSymbolicLink()) {
+      callback()
+      return
+    }
+    superProto.onstat.call(this, opts, callback)
+  }
+
+  interface WalkerInstance {
+    path: string
+    requiredFiles: string[]
+    tree: { package: { files?: string[] } }
+    injectRules: (file: unknown, rules: string[], cb: () => void) => void
+  }
+
+  const origProcessPackage = walkerProto.processPackage
+  walkerProto.processPackage = function (this: WalkerInstance, callback: () => void): void {
+    const origInject = this.injectRules
+    this.injectRules = function (this: WalkerInstance, file: unknown, rules: string[], cb: () => void) {
+      if (typeof file === 'symbol' && file.description === 'npm-packlist.rules.strict' && this.tree.package.files) {
+        for (let rawFile of this.tree.package.files) {
+          if (rawFile.startsWith('./')) rawFile = rawFile.slice(1)
+          const inverse = `!${rawFile}`
+          try {
+            const st = fs.lstatSync(path.join(this.path, rawFile.replace(/^!+/, '')))
+            if (st.isSymbolicLink()) {
+              rules.unshift(inverse)
+              this.requiredFiles.push(rawFile.startsWith('/') ? rawFile.slice(1) : rawFile)
+            }
+          } catch {}
+        }
+      }
+      return origInject.call(this, file, rules, cb)
+    }
+    return origProcessPackage.call(this, callback)
+  }
+}
+
+function isInternalFileOrSymlink (pkgDir: string, relFile: string): boolean {
+  const absPath = path.join(pkgDir, relFile)
+  let lstat: fs.Stats
+  try {
+    lstat = fs.lstatSync(absPath)
+  } catch {
+    return false
+  }
+  if (!lstat.isSymbolicLink()) {
+    return true
+  }
+  const linkTarget = fs.readlinkSync(absPath)
+  const resolvedTarget = path.resolve(path.dirname(absPath), linkTarget)
+  const relToPkg = path.relative(pkgDir, resolvedTarget)
+  if (relToPkg.startsWith('..') || path.isAbsolute(relToPkg)) {
+    return false
+  }
+  try {
+    const realTarget = fs.realpathSync(absPath)
+    const realPkgDir = fs.realpathSync(pkgDir)
+    const relReal = path.relative(realPkgDir, realTarget)
+    if (relReal.startsWith('..') || path.isAbsolute(relReal)) {
+      return false
+    }
+  } catch (err: unknown) {
+    if (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') {
+      return false
+    }
+  }
+  return true
 }
 
 function buildRootTree (pkgDir: string, pkg: Record<string, unknown>): TreeNode {

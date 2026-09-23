@@ -1153,4 +1153,83 @@ fn install_module(dir: &Path, name: &str, version: &str, extra: &[(&str, &str)])
     }
 }
 
+#[test]
+fn pack_preserves_internal_symlinks() {
+    let (dir, opts) = fixture(&json!({
+        "name": "test-pack-symlinks",
+        "version": "1.0.0",
+        "files": ["real-file.txt", "symlink-file.txt", "sub", "symlink-dir", "symlink-outside"],
+    }));
+    let root = dir.path();
+    touch(root, "real-file.txt", "hello from real file");
+    touch(root, "sub/nested.txt", "nested content");
+
+    let outside = tempdir().unwrap();
+    touch(outside.path(), "secret.txt", "secret");
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink("real-file.txt", root.join("symlink-file.txt")).unwrap();
+        std::os::unix::fs::symlink("sub", root.join("symlink-dir")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("symlink-outside"))
+            .unwrap();
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::os::windows::fs::symlink_file("real-file.txt", root.join("symlink-file.txt"));
+        let _ = std::os::windows::fs::symlink_dir("sub", root.join("symlink-dir"));
+        let _ = std::os::windows::fs::symlink_file(
+            outside.path().join("secret.txt"),
+            root.join("symlink-outside"),
+        );
+    }
+
+    let result = api::<SilentReporter, Host>(&opts).unwrap();
+    let tarball = dir.path().join(&result.tarball_path);
+
+    let file = std::fs::File::open(&tarball).unwrap();
+    let mut archive = tar::Archive::new(GzDecoder::new(file));
+    let mut symlink_file_entry = None;
+    let mut symlink_dir_entry = None;
+    let mut found_outside = false;
+
+    for entry in archive.entries().unwrap() {
+        let entry = entry.unwrap();
+        let name = entry
+            .path()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        if name == "package/symlink-file.txt" {
+            symlink_file_entry = Some((
+                entry.header().entry_type(),
+                entry
+                    .link_name()
+                    .unwrap()
+                    .map(|target_path| target_path.to_string_lossy().into_owned()),
+            ));
+        } else if name == "package/symlink-dir" {
+            symlink_dir_entry = Some((
+                entry.header().entry_type(),
+                entry
+                    .link_name()
+                    .unwrap()
+                    .map(|target_path| target_path.to_string_lossy().into_owned()),
+            ));
+        } else if name == "package/symlink-outside" {
+            found_outside = true;
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        assert_eq!(
+            symlink_file_entry,
+            Some((tar::EntryType::Symlink, Some("real-file.txt".to_string()))),
+        );
+        assert_eq!(symlink_dir_entry, Some((tar::EntryType::Symlink, Some("sub".to_string()))));
+        assert!(!found_outside, "escaping symlinks must be excluded");
+    }
+}
+
 mod bundled_dependencies;
