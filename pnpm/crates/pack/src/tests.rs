@@ -534,7 +534,11 @@ fn files_field_with_alternate_manifests_strips_case_variants_from_tarball() {
         "name: foo\nversion: 1.0.0\nfiles:\n  - dist\n",
     )
     .unwrap();
-    touch(dir.path(), "PACKAGE.JSON5", "{name: 'foo', version: '1.0.0'}\n");
+    touch(
+        dir.path(),
+        "PACKAGE.JSON5",
+        "{\"name\": \"foo\", \"version\": \"1.0.0\", \"files\": [\"dist\"]}\n",
+    );
     let opts = PackOptions {
         dir: dir.path().to_path_buf(),
         workspace_dir: None,
