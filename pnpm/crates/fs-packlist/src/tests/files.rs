@@ -66,6 +66,29 @@ fn files_field_restricts_to_listed_globs() {
 }
 
 #[test]
+fn files_field_always_includes_alternate_manifests_at_root() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    touch(root, "package.yaml");
+    touch(root, "package.json5");
+    touch(root, "dist/index.js");
+    touch(root, "src/index.ts");
+
+    let manifest = json!({
+        "name": "x",
+        "version": "0.0.0",
+        "files": ["dist/**"],
+    });
+
+    let out = packlist(root, &manifest).unwrap();
+    assert_eq!(
+        out,
+        vec!["dist/index.js".to_string(), "package.json5".into(), "package.yaml".into(),],
+        "always-included files (package.yaml/package.json5) ship alongside the `files` glob",
+    );
+}
+
+#[test]
 fn question_mark_does_not_cross_directory() {
     // Regression: `?` matches a single non-slash byte, not arbitrary
     // characters. Without the explicit `/` guard, `a?b/index.js` would

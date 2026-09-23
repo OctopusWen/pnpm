@@ -453,7 +453,7 @@ fn is_always_included_at_root(rel: &str) -> bool {
         return false;
     }
     let lower = rel.to_ascii_lowercase();
-    if lower == "package.json" {
+    if matches!(lower.as_str(), "package.json" | "package.json5" | "package.yaml") {
         return true;
     }
     ALWAYS_INCLUDED_PREFIXES

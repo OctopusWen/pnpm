@@ -20,10 +20,44 @@ interface TreeNode {
   edgesOut: Map<string, Edge>
 }
 
+let walkerPatched = false
+
+function patchNpmPacklistWalker (): void {
+  if (walkerPatched) return
+  walkerPatched = true
+  const walkerProto = (npmPacklist as any).Walker?.prototype // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (!walkerProto) return
+
+  const originalOnReaddir = walkerProto.onReaddir
+  walkerProto.onReaddir = function (entries: string[]): void {
+    if (this.isPackage && !entries.includes('package.json')) {
+      this.processPackage(() => {
+        originalOnReaddir.call(this, entries)
+      })
+      return
+    }
+    originalOnReaddir.call(this, entries)
+  }
+
+  const originalInjectRules = walkerProto.injectRules
+  walkerProto.injectRules = function (
+    filename: string | symbol,
+    rules: string[],
+    callback?: () => void
+  ): void {
+    if (Array.isArray(rules) && rules.includes('!/package.json')) {
+      if (!rules.includes('!/package.yaml')) rules.push('!/package.yaml')
+      if (!rules.includes('!/package.json5')) rules.push('!/package.json5')
+    }
+    return originalInjectRules.call(this, filename, rules, callback)
+  }
+}
+
 export async function packlist (pkgDir: string, opts?: {
   manifest?: Record<string, unknown>
   workspaceDir?: string
 }): Promise<string[]> {
+  patchNpmPacklistWalker()
   const resolvedPkgDir = path.resolve(pkgDir)
   const workspaceDir = opts?.workspaceDir == null ? undefined : path.resolve(opts.workspaceDir)
   const pkg = opts?.manifest ?? readPackageJson(resolvedPkgDir)

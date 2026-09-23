@@ -524,6 +524,49 @@ fn files_field_restricts_the_tarball_contents() {
 }
 
 #[test]
+fn files_field_restricts_the_tarball_contents_with_package_yaml() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("package.yaml"),
+        "name: foo\nversion: 1.0.0\nfiles:\n  - dist\n",
+    )
+    .unwrap();
+    let opts = PackOptions {
+        dir: dir.path().to_path_buf(),
+        workspace_dir: None,
+        scripts: crate::PackScripts {
+            ignore: true,
+            unsafe_perm: true,
+            user_agent: "pacquet".to_string(),
+            extra_bin_paths: Vec::new(),
+            extra_env: HashMap::new(),
+        },
+        manifest: crate::PackManifestOptions {
+            catalogs: BTreeMap::new(),
+            catalogs_dir: None,
+            embed_readme: false,
+            node_linker: NodeLinker::Isolated,
+            skip_obfuscation: false,
+            before_packing_hooks: Vec::new(),
+            workspace_packages: None,
+        },
+        output: crate::PackOutputOptions {
+            gzip_level: None,
+            dry_run: false,
+            destination: None,
+            out: None,
+            injected_files: Vec::new(),
+            locks: None,
+        },
+    };
+    touch(dir.path(), "dist/index.js", "x\n");
+    touch(dir.path(), "src/index.ts", "x\n");
+
+    let result = api::<SilentReporter, Host>(&opts).unwrap();
+    assert_eq!(result.contents, vec!["dist/index.js".to_string(), "package.json".into()]);
+}
+
+#[test]
 fn files_field_entries_do_not_match_at_depth() {
     let (dir, opts) = fixture(&json!({
         "name": "foo",
