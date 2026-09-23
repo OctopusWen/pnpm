@@ -7,5 +7,12 @@
 /// applies in three places (tar entry rewrite, size, and contents).
 #[must_use]
 pub fn is_manifest_entry(name: &str) -> bool {
-    matches!(name, "package/package.json" | "package/package.json5" | "package/package.yaml")
+    let Some(basename) = name.strip_prefix("package/") else {
+        return false;
+    };
+    if basename.contains('/') {
+        return false;
+    }
+    let lower = basename.to_ascii_lowercase();
+    matches!(lower.as_str(), "package.json" | "package.json5" | "package.yaml")
 }

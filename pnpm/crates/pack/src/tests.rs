@@ -1,5 +1,8 @@
 use super::{Host, PackError, PackOptions, PackResult, format_pack_output, to_pack_result_json};
-use crate::capabilities::{FsAtomicWrite, FsCreateDirAll, FsFileLen, FsIsExecutable, FsReadFile};
+use crate::{
+    capabilities::{FsAtomicWrite, FsCreateDirAll, FsFileLen, FsIsExecutable, FsReadFile},
+    manifest_entry::is_manifest_entry,
+};
 use flate2::read::GzDecoder;
 use pnpm_config::NodeLinker;
 use pnpm_reporter::{LogEvent, Reporter, SilentReporter};
@@ -524,13 +527,14 @@ fn files_field_restricts_the_tarball_contents() {
 }
 
 #[test]
-fn files_field_restricts_the_tarball_contents_with_package_yaml() {
+fn files_field_with_alternate_manifests_strips_case_variants_from_tarball() {
     let dir = tempdir().unwrap();
     std::fs::write(
         dir.path().join("package.yaml"),
         "name: foo\nversion: 1.0.0\nfiles:\n  - dist\n",
     )
     .unwrap();
+    touch(dir.path(), "PACKAGE.JSON5", "{name: 'foo', version: '1.0.0'}\n");
     let opts = PackOptions {
         dir: dir.path().to_path_buf(),
         workspace_dir: None,
@@ -564,6 +568,20 @@ fn files_field_restricts_the_tarball_contents_with_package_yaml() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
     assert_eq!(result.contents, vec!["dist/index.js".to_string(), "package.json".into()]);
+}
+
+#[test]
+fn matches_manifest_entries_case_insensitively_at_root() {
+    assert!(is_manifest_entry("package/package.json"));
+    assert!(is_manifest_entry("package/PACKAGE.JSON"));
+    assert!(is_manifest_entry("package/package.yaml"));
+    assert!(is_manifest_entry("package/PACKAGE.YAML"));
+    assert!(is_manifest_entry("package/package.json5"));
+    assert!(is_manifest_entry("package/PACKAGE.JSON5"));
+
+    assert!(!is_manifest_entry("package/sub/package.json"));
+    assert!(!is_manifest_entry("other/package.json"));
+    assert!(!is_manifest_entry("package/package.js"));
 }
 
 #[test]
