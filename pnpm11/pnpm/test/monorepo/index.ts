@@ -2167,3 +2167,50 @@ test('a directory without a manifest of its own still installs the whole workspa
   expect(fs.existsSync(path.join('packages/package-1/src', WANTED_LOCKFILE))).toBe(false)
   expect(fs.existsSync('packages/package-1/node_modules/is-positive')).toBe(true)
 })
+
+test('issue 7209: updates injected dependency when sharedWorkspaceLockfile is false', async () => {
+  const projects = preparePackages([
+    {
+      name: 'shared',
+      version: '1.0.0',
+      dependencies: {
+        'is-positive': '1.0.0',
+      },
+    },
+    {
+      name: 'app',
+      version: '1.0.0',
+      dependencies: {
+        shared: 'workspace:*',
+      },
+      dependenciesMeta: {
+        shared: {
+          injected: true,
+        },
+      },
+    },
+  ])
+
+  writeYamlFileSync('pnpm-workspace.yaml', {
+    packages: ['**', '!store/**'],
+    sharedWorkspaceLockfile: false,
+  })
+
+  execPnpmSync(['install'])
+  projects['app'].has('shared')
+
+  // Add dependency to shared
+  projects['shared'].writePackageJson({
+    name: 'shared',
+    version: '1.0.0',
+    dependencies: {
+      'is-positive': '1.0.0',
+      'is-negative': '1.0.0',
+    },
+  })
+
+  execPnpmSync(['install'])
+  projects['app'].has('shared')
+  const appLockfile = projects['app'].readLockfile()
+  expect(appLockfile.packages).toHaveProperty(['is-negative@1.0.0'])
+})
