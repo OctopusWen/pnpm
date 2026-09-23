@@ -2199,7 +2199,6 @@ test('issue 7209: updates injected dependency when sharedWorkspaceLockfile is fa
   execPnpmSync(['install'])
   projects['app'].has('shared')
 
-  // Add dependency to shared
   projects['shared'].writePackageJson({
     name: 'shared',
     version: '1.0.0',
