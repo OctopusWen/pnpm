@@ -276,12 +276,19 @@ fn resolve_peer_range(
 
 impl PeerProviders<'_> {
     fn resolve_reference(&self, name: &PkgName) -> Option<(&ResolvedDependencySpec, &Path)> {
-        project_dependency(self.importer, name)
-            .map(|spec| (spec, self.importer_dir))
-            .or_else(|| {
-                self.linked_importer
-                    .and_then(|importer| project_dependency(importer, name))
-                    .map(|spec| (spec, self.linked_importer_dir))
-            })
+        if let Some(spec) = project_dependency(self.importer, name) {
+            return Some((spec, self.importer_dir));
+        }
+        if let Some(spec) =
+            self.linked_importer.and_then(|importer| project_dependency(importer, name))
+        {
+            return Some((spec, self.linked_importer_dir));
+        }
+        if self.importer_dir != self.lockfile_dir {
+            let root = self.lockfile.importers.get(".")?;
+            let spec = project_dependency(root, name)?;
+            return Some((spec, self.lockfile_dir));
+        }
+        None
     }
 }
