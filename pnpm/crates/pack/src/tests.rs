@@ -1153,6 +1153,7 @@ fn install_module(dir: &Path, name: &str, version: &str, extra: &[(&str, &str)])
     }
 }
 
+#[cfg(unix)]
 #[test]
 fn pack_preserves_internal_symlinks() {
     let (dir, opts) = fixture(&json!({
@@ -1167,22 +1168,10 @@ fn pack_preserves_internal_symlinks() {
     let outside = tempdir().unwrap();
     touch(outside.path(), "secret.txt", "secret");
 
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink("real-file.txt", root.join("symlink-file.txt")).unwrap();
-        std::os::unix::fs::symlink("sub", root.join("symlink-dir")).unwrap();
-        std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("symlink-outside"))
-            .unwrap();
-    }
-    #[cfg(windows)]
-    {
-        let _ = std::os::windows::fs::symlink_file("real-file.txt", root.join("symlink-file.txt"));
-        let _ = std::os::windows::fs::symlink_dir("sub", root.join("symlink-dir"));
-        let _ = std::os::windows::fs::symlink_file(
-            outside.path().join("secret.txt"),
-            root.join("symlink-outside"),
-        );
-    }
+    std::os::unix::fs::symlink("real-file.txt", root.join("symlink-file.txt")).unwrap();
+    std::os::unix::fs::symlink("sub", root.join("symlink-dir")).unwrap();
+    std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("symlink-outside"))
+        .unwrap();
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
     let tarball = dir.path().join(&result.tarball_path);
@@ -1221,15 +1210,12 @@ fn pack_preserves_internal_symlinks() {
         }
     }
 
-    #[cfg(unix)]
-    {
-        assert_eq!(
-            symlink_file_entry,
-            Some((tar::EntryType::Symlink, Some("real-file.txt".to_string()))),
-        );
-        assert_eq!(symlink_dir_entry, Some((tar::EntryType::Symlink, Some("sub".to_string()))));
-        assert!(!found_outside, "escaping symlinks must be excluded");
-    }
+    assert_eq!(
+        symlink_file_entry,
+        Some((tar::EntryType::Symlink, Some("real-file.txt".to_string()))),
+    );
+    assert_eq!(symlink_dir_entry, Some((tar::EntryType::Symlink, Some("sub".to_string()))));
+    assert!(!found_outside, "escaping symlinks must be excluded");
 }
 
 mod bundled_dependencies;
