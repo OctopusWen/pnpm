@@ -479,7 +479,7 @@ function copySymlink (src: string, dest: string): void {
   if (process.platform === 'win32') {
     try {
       const stat = fs.statSync(src)
-      type = stat.isDirectory() ? 'junction' : 'file'
+      type = stat.isDirectory() ? 'dir' : 'file'
     } catch {
       type = 'file'
     }
@@ -487,6 +487,15 @@ function copySymlink (src: string, dest: string): void {
   try {
     fs.symlinkSync(target, dest, type)
   } catch (err: unknown) {
+    if (process.platform === 'win32' && type === 'dir') {
+      try {
+        const resolved = target.startsWith('/') || path.isAbsolute(target)
+          ? target
+          : path.resolve(path.dirname(dest), target)
+        fs.symlinkSync(resolved, dest, 'junction')
+        return
+      } catch {}
+    }
     if (util.types.isNativeError(err) && 'code' in err && err.code === 'EEXIST') {
       return
     }
