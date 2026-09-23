@@ -257,6 +257,8 @@ export async function main (inputArgv: string[]): Promise<void> {
     }
   }
 
+  const hasExplicitRecursive = cliOptions['recursive'] === true
+
   if (
     cmd != null && recursiveByDefaultCommands.has(cmd) &&
     typeof workspaceDir === 'string'
@@ -264,7 +266,9 @@ export async function main (inputArgv: string[]): Promise<void> {
     cliOptions['recursive'] = true
     config.recursive = true
 
-    if (!config.recursiveInstall && !config.filter && !config.filterProd) {
+    if (hasExplicitRecursive) {
+      config.recursiveInstall = true
+    } else if (!config.recursiveInstall && !config.filter && !config.filterProd) {
       config.filter = ['{.}...']
     }
   }
