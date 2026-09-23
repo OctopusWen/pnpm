@@ -737,6 +737,7 @@ async function assertWantedLockfileUpToDate (
   if (!await linkedPackagesAreUpToDate({
     linkWorkspacePackages: !!linkWorkspacePackages,
     lockfileDir: wantedLockfileDir,
+    workspaceDir: config.workspaceDir,
     manifestsByDir: getManifestsByDir(),
     workspacePackages: getWorkspacePackages(),
     lockfilePackages: wantedLockfile.packages,

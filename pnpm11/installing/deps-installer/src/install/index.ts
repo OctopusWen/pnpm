@@ -938,6 +938,7 @@ export async function mutateModules (
         wantedLockfile: lockfile,
         workspacePackages: ctx.workspacePackages,
         lockfileDir: opts.lockfileDir,
+        workspaceDir: opts.workspaceDir,
       })
       // Built only for the rewrites that consult the resolver: deriving the
       // policies rejects a malformed pattern, which is the resolver's error
@@ -1644,6 +1645,7 @@ export async function mutateModules (
           wantedLockfile: ctx.wantedLockfile,
           workspacePackages: ctx.workspacePackages,
           lockfileDir: opts.lockfileDir,
+          workspaceDir: opts.workspaceDir,
         })
       )
 
