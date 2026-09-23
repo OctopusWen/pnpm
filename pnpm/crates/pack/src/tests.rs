@@ -572,6 +572,20 @@ fn files_field_with_alternate_manifests_strips_case_variants_from_tarball() {
 
     let result = api::<SilentReporter, Host>(&opts).unwrap();
     assert_eq!(result.contents, vec!["dist/index.js".to_string(), "package.json".into()]);
+    let entry_names = tarball_entry_names(&dir.path().join("foo-1.0.0.tgz"));
+    assert_eq!(
+        entry_names
+            .iter()
+            .filter(|n| n.as_str() == "package/package.json")
+            .count(),
+        1,
+    );
+    assert!(
+        !entry_names
+            .iter()
+            .any(|n| n.to_ascii_lowercase().contains("json5")
+                || n.to_ascii_lowercase().contains("yaml")),
+    );
 }
 
 #[test]
