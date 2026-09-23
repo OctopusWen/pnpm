@@ -89,6 +89,29 @@ fn files_field_always_includes_alternate_manifests_at_root() {
 }
 
 #[test]
+fn files_field_does_not_always_include_uppercase_manifest_names_at_root() {
+    let dir = tempdir().unwrap();
+    let root = dir.path();
+    touch(root, "PACKAGE.YAML");
+    touch(root, "PACKAGE.JSON5");
+    touch(root, "package.json");
+    touch(root, "dist/index.js");
+
+    let manifest = json!({
+        "name": "x",
+        "version": "0.0.0",
+        "files": ["dist/**"],
+    });
+
+    let out = packlist(root, &manifest).unwrap();
+    assert_eq!(
+        out,
+        vec!["dist/index.js".to_string(), "package.json".into()],
+        "uppercase files are regular files and not always included when excluded by `files`",
+    );
+}
+
+#[test]
 fn question_mark_does_not_cross_directory() {
     // Regression: `?` matches a single non-slash byte, not arbitrary
     // characters. Without the explicit `/` guard, `a?b/index.js` would

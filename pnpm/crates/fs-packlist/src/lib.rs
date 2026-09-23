@@ -452,10 +452,10 @@ fn is_always_included_at_root(rel: &str) -> bool {
     if rel.contains('/') {
         return false;
     }
-    let lower = rel.to_ascii_lowercase();
-    if matches!(lower.as_str(), "package.json" | "package.json5" | "package.yaml") {
+    if matches!(rel, "package.json" | "package.json5" | "package.yaml") {
         return true;
     }
+    let lower = rel.to_ascii_lowercase();
     ALWAYS_INCLUDED_PREFIXES
         .iter()
         .any(|prefix| lower.starts_with(prefix))

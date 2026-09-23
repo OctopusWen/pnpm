@@ -527,18 +527,14 @@ fn files_field_restricts_the_tarball_contents() {
 }
 
 #[test]
-fn files_field_with_alternate_manifests_strips_case_variants_from_tarball() {
+fn files_field_restricts_the_tarball_contents_with_package_yaml() {
     let dir = tempdir().unwrap();
     std::fs::write(
         dir.path().join("package.yaml"),
         "name: foo\nversion: 1.0.0\nfiles:\n  - dist\n",
     )
     .unwrap();
-    touch(
-        dir.path(),
-        "PACKAGE.JSON5",
-        "{\"name\": \"foo\", \"version\": \"1.0.0\", \"files\": [\"dist\"]}\n",
-    );
+    touch(dir.path(), "PACKAGE.JSON5", "regular file content\n");
     let opts = PackOptions {
         dir: dir.path().to_path_buf(),
         workspace_dir: None,
@@ -589,13 +585,71 @@ fn files_field_with_alternate_manifests_strips_case_variants_from_tarball() {
 }
 
 #[test]
-fn matches_manifest_entries_case_insensitively_at_root() {
+fn files_field_can_include_uppercase_manifest_named_files_as_ordinary_content() {
+    let dir = tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("package.yaml"),
+        "name: foo\nversion: 1.0.0\nfiles:\n  - dist\n  - PACKAGE.JSON5\n",
+    )
+    .unwrap();
+    touch(dir.path(), "PACKAGE.JSON5", "uppercase file content\n");
+    let opts = PackOptions {
+        dir: dir.path().to_path_buf(),
+        workspace_dir: None,
+        scripts: crate::PackScripts {
+            ignore: true,
+            unsafe_perm: true,
+            user_agent: "pacquet".to_string(),
+            extra_bin_paths: Vec::new(),
+            extra_env: HashMap::new(),
+        },
+        manifest: crate::PackManifestOptions {
+            catalogs: BTreeMap::new(),
+            catalogs_dir: None,
+            embed_readme: false,
+            node_linker: NodeLinker::Isolated,
+            skip_obfuscation: false,
+            before_packing_hooks: Vec::new(),
+            workspace_packages: None,
+        },
+        output: crate::PackOutputOptions {
+            gzip_level: None,
+            dry_run: false,
+            destination: None,
+            out: None,
+            injected_files: Vec::new(),
+            locks: None,
+        },
+    };
+    touch(dir.path(), "dist/index.js", "x\n");
+
+    let result = api::<SilentReporter, Host>(&opts).unwrap();
+    assert_eq!(
+        result.contents,
+        vec!["dist/index.js".to_string(), "package.json".into(), "PACKAGE.JSON5".into()],
+    );
+    let entry_names = tarball_entry_names(&dir.path().join("foo-1.0.0.tgz"));
+    assert_eq!(
+        entry_names
+            .iter()
+            .filter(|n| n.as_str() == "package/package.json")
+            .count(),
+        1,
+    );
+    assert!(entry_names.contains(&"package/PACKAGE.JSON5".to_string()));
+    assert!(!entry_names.contains(&"package/package.yaml".to_string()));
+}
+
+#[test]
+fn matches_manifest_entries_at_root() {
     assert!(is_manifest_entry("package/package.json"));
-    assert!(is_manifest_entry("package/PACKAGE.JSON"));
     assert!(is_manifest_entry("package/package.yaml"));
-    assert!(is_manifest_entry("package/PACKAGE.YAML"));
     assert!(is_manifest_entry("package/package.json5"));
-    assert!(is_manifest_entry("package/PACKAGE.JSON5"));
+
+    // Uppercase names are ordinary files, not package manifests
+    assert!(!is_manifest_entry("package/PACKAGE.JSON"));
+    assert!(!is_manifest_entry("package/PACKAGE.YAML"));
+    assert!(!is_manifest_entry("package/PACKAGE.JSON5"));
 
     assert!(!is_manifest_entry("package/sub/package.json"));
     assert!(!is_manifest_entry("other/package.json"));
