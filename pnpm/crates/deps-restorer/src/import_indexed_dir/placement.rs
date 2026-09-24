@@ -53,6 +53,7 @@ pub(super) fn populate_dir<Reporter: self::Reporter>(
             import_method,
             &cas_paths[marker],
             &dir_path.join(marker),
+            preserve_symlinks,
         )?;
     }
     Ok(())
@@ -144,7 +145,22 @@ fn place_symlink_entry(
     }
     clear_dir_blocking_file::<Host>(target)?;
     let temp = super::staging::pick_stage_path(target);
-    if let Err(error) = pnpm_fs::copy_dirent(store_path, &temp) {
+    let mut link_target = fs::read_link(store_path)
+        .map_err(|error| {
+            ImportIndexedDirError::LinkFile(crate::link_file::LinkFileError::Import {
+                from: store_path.to_path_buf(),
+                to: target.to_path_buf(),
+                error,
+            })
+        })?;
+    if link_target.is_absolute()
+        && let Some(parent) = store_path.parent()
+        && let Some(rel) = pathdiff::diff_paths(&link_target, parent)
+    {
+        link_target = rel;
+    }
+    let is_dir = fs::metadata(store_path).is_ok_and(|meta| meta.is_dir());
+    if let Err(error) = pnpm_fs::create_symlink(&link_target, &temp, is_dir) {
         let _ = fs::remove_file(&temp);
         return Err(ImportIndexedDirError::LinkFile(crate::link_file::LinkFileError::Import {
             from: store_path.to_path_buf(),
@@ -174,7 +190,13 @@ pub(super) fn place_marker<Reporter: self::Reporter>(
     import_method: PackageImportMethod,
     store_path: &Path,
     target: &Path,
+    preserve_symlinks: bool,
 ) -> Result<(), ImportIndexedDirError> {
+    if preserve_symlinks
+        && fs::symlink_metadata(store_path).is_ok_and(|meta| meta.file_type().is_symlink())
+    {
+        return place_symlink_entry(placement, store_path, target);
+    }
     if placement == Placement::Repair {
         clear_dir_blocking_file::<Host>(target)?;
     }
@@ -337,10 +359,8 @@ pub(super) fn file_matches_store_entry(target: &Path, store_path: &Path) -> bool
         return false;
     };
     if store_meta.file_type().is_symlink() {
-        if !target_meta.file_type().is_symlink() {
-            return false;
-        }
-        return fs::read_link(target).ok() == fs::read_link(store_path).ok();
+        return target_meta.file_type().is_symlink()
+            && symlink_matches_store_entry(target, store_path);
     }
     if !target_meta.is_file() {
         return false;
@@ -365,6 +385,23 @@ pub(super) fn file_matches_store_entry(target: &Path, store_path: &Path) -> bool
     }
     target_meta.len() == store_meta.len()
         && files_have_equal_contents(target, store_path).unwrap_or(false)
+}
+
+fn symlink_matches_store_entry(target: &Path, store_path: &Path) -> bool {
+    let (Ok(target_link), Ok(store_link)) = (fs::read_link(target), fs::read_link(store_path))
+    else {
+        return false;
+    };
+    if target_link == store_link {
+        return true;
+    }
+    if store_link.is_absolute()
+        && let Some(parent) = store_path.parent()
+        && let Some(rel) = pathdiff::diff_paths(&store_link, parent)
+    {
+        return target_link == rel;
+    }
+    false
 }
 /// Byte-compare two files without buffering either one.
 ///

@@ -99,32 +99,49 @@ export function importIndexedDir (
   }
   try {
     renameOverwriteSync(stage, newDir)
-    for (const { dest, target } of stagedJunctions) {
-      const rel = path.relative(stage, dest)
-      const finalDest = path.join(newDir, rel)
-      const finalTarget = path.isAbsolute(target) ? target : path.resolve(path.dirname(finalDest), target)
-      try {
-        fs.unlinkSync(finalDest)
-      } catch (err: unknown) {
-        try {
-          fs.rmdirSync(finalDest)
-        } catch (rmdirErr: unknown) {
-          if (
-            (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') &&
-            (!util.types.isNativeError(rmdirErr) || !('code' in rmdirErr) || rmdirErr.code !== 'ENOENT')
-          ) {
-            throw err
-          }
-        }
-      }
-      fs.mkdirSync(finalTarget, { recursive: true })
-      fs.symlinkSync(finalTarget, finalDest, 'junction')
-    }
   } catch (renameErr: unknown) {
     try {
       rimrafSync(stage)
     } catch {} // eslint-disable-line:no-empty
     throw renameErr
+  }
+  if (stagedJunctions.length > 0) {
+    try {
+      for (const { dest, target } of stagedJunctions) {
+        const rel = path.relative(stage, dest)
+        const finalDest = path.join(newDir, rel)
+        const finalTarget = path.isAbsolute(target) ? target : path.resolve(path.dirname(finalDest), target)
+        const relFromNewDir = path.relative(newDir, finalTarget)
+        if (relFromNewDir.startsWith('..') || path.isAbsolute(relFromNewDir)) {
+          throw new Error(`Directory junction target "${target}" escapes package root "${newDir}"`)
+        }
+        try {
+          fs.unlinkSync(finalDest)
+        } catch (err: unknown) {
+          try {
+            fs.rmdirSync(finalDest)
+          } catch (rmdirErr: unknown) {
+            if (
+              (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') &&
+              (!util.types.isNativeError(rmdirErr) || !('code' in rmdirErr) || rmdirErr.code !== 'ENOENT')
+            ) {
+              throw err
+            }
+          }
+        }
+        fs.mkdirSync(finalTarget, { recursive: true })
+        fs.symlinkSync(finalTarget, finalDest, 'junction')
+      }
+      const packageJsonSrc = filenames.get('package.json')
+      if (packageJsonSrc !== undefined) {
+        importEntry(importer.importFileAtomic, packageJsonSrc, path.join(newDir, 'package.json'), opts, newDir)
+      }
+    } catch (err: unknown) {
+      try {
+        rimrafSync(newDir)
+      } catch {} // eslint-disable-line:no-empty
+      throw err
+    }
   }
 }
 
@@ -497,20 +514,23 @@ function tryImportIndexedDir (
   // pkgExistsAtTargetDir() checks for package.json to decide if a package
   // is already imported — writing it last ensures a crash mid-import won't
   // leave a partially-populated directory that appears fully imported.
+  // When staged, package.json placement is deferred until after the
+  // directory rename and after staged Windows junctions are rewritten.
   let packageJsonSrc: string | undefined
   for (const [f, src] of filenames) {
     if (f === 'package.json') {
       packageJsonSrc = src
       continue
     }
-    importEntry(importFile, src, path.join(newDir, f), opts)
+    importEntry(importFile, src, path.join(newDir, f), opts, newDir)
   }
-  if (packageJsonSrc !== undefined) {
-    importEntry(importFileAtomic, packageJsonSrc, path.join(newDir, 'package.json'), opts)
+  const hasStagedJunctions = (opts?.stagedJunctions?.length ?? 0) > 0
+  if (packageJsonSrc !== undefined && !hasStagedJunctions) {
+    importEntry(importFileAtomic, packageJsonSrc, path.join(newDir, 'package.json'), opts, newDir)
   }
 }
 
-function importEntry (importFile: ImportFile, src: string, dest: string, opts?: ImportIndexedDirOptions): void {
+function importEntry (importFile: ImportFile, src: string, dest: string, opts?: ImportIndexedDirOptions, pkgDir?: string): void {
   if (opts?.resolvedFrom !== 'store') {
     let stat: fs.Stats | undefined
     try {
@@ -519,14 +539,14 @@ function importEntry (importFile: ImportFile, src: string, dest: string, opts?: 
       if (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') throw err
     }
     if (stat?.isSymbolicLink()) {
-      copySymlink(src, dest, opts)
+      copySymlink(src, dest, opts, pkgDir)
       return
     }
   }
   importFile(src, dest)
 }
 
-function copySymlink (src: string, dest: string, opts?: ImportIndexedDirOptions): void {
+function copySymlink (src: string, dest: string, opts?: ImportIndexedDirOptions, pkgDir?: string): void {
   let target = fs.readlinkSync(src)
   if (path.isAbsolute(target)) {
     target = path.relative(path.dirname(src), target)
@@ -548,6 +568,12 @@ function copySymlink (src: string, dest: string, opts?: ImportIndexedDirOptions)
         const resolved = path.isAbsolute(target)
           ? target
           : path.resolve(path.dirname(dest), target)
+        if (pkgDir) {
+          const relFromPkg = path.relative(pkgDir, resolved)
+          if (relFromPkg.startsWith('..') || path.isAbsolute(relFromPkg)) {
+            throw new Error(`Directory junction target "${target}" escapes package root "${pkgDir}"`, { cause: err })
+          }
+        }
         fs.mkdirSync(resolved, { recursive: true })
         fs.symlinkSync(resolved, dest, 'junction')
         if (opts?.stagedJunctions) {

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import util from 'node:util'
 
 import { afterEach, beforeEach, expect, jest, test } from '@jest/globals'
 import { assertProject } from '@pnpm/assert-project'
@@ -27,12 +28,18 @@ const { globalWarn } = await import('@pnpm/logger')
 const { deploy } = await import('@pnpm/releasing.commands')
 const testOnNonWindows = process.platform === 'win32' ? test.skip : test
 let canSymlink = true
+const probe = path.join(process.cwd(), `symlink-probe-${process.pid}`)
 try {
-  const probe = path.join(process.cwd(), `symlink-probe-${process.pid}`)
   fs.symlinkSync(process.cwd(), probe, 'dir')
-  fs.unlinkSync(probe)
-} catch {
-  canSymlink = false
+  try {
+    fs.unlinkSync(probe)
+  } catch {} // eslint-disable-line:no-empty
+} catch (err: unknown) {
+  if (util.types.isNativeError(err) && 'code' in err && (err.code === 'EPERM' || err.code === 'EACCES')) {
+    canSymlink = false
+  } else {
+    throw err
+  }
 }
 const testWithSymlinks = canSymlink ? test : test.skip
 

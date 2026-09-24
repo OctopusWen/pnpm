@@ -350,7 +350,7 @@ fn slot_import_opts(
             force: true,
             keep_modules_dir: true,
             safe_to_skip,
-            ..ImportIndexedDirOpts::default()
+            preserve_symlinks: source_is_mutable,
         };
     }
     ImportIndexedDirOpts { safe_to_skip, ..ImportIndexedDirOpts::default() }
