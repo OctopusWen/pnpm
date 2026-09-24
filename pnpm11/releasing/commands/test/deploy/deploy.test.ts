@@ -26,6 +26,15 @@ jest.unstable_mockModule('@pnpm/logger', () => {
 const { globalWarn } = await import('@pnpm/logger')
 const { deploy } = await import('@pnpm/releasing.commands')
 const testOnNonWindows = process.platform === 'win32' ? test.skip : test
+let canSymlink = true
+try {
+  const probe = path.join(process.cwd(), `symlink-probe-${process.pid}`)
+  fs.symlinkSync(process.cwd(), probe, 'dir')
+  fs.unlinkSync(probe)
+} catch {
+  canSymlink = false
+}
+const testWithSymlinks = canSymlink ? test : test.skip
 
 beforeEach(async () => {
   jest.mocked(globalWarn).mockClear()
@@ -1157,7 +1166,7 @@ test('deploy does not preserve the inject workspace packages settings in the loc
   expect(lockfile.settings).not.toHaveProperty('injectWorkspacePackages')
 })
 
-test('deploy: preserves internal symlinks in deployed package', async () => {
+testWithSymlinks('deploy: preserves internal symlinks in deployed package', async () => {
   preparePackages([
     {
       location: '.',
@@ -1176,7 +1185,7 @@ test('deploy: preserves internal symlinks in deployed package', async () => {
   fs.mkdirSync('project/sub')
   fs.writeFileSync('project/sub/nested.txt', 'nested content')
   fs.symlinkSync('real-file.txt', 'project/symlink-file.txt')
-  fs.symlinkSync('sub', 'project/symlink-dir')
+  fs.symlinkSync('sub', 'project/symlink-dir', 'dir')
 
   const { allProjects, selectedProjectsGraph } = await filterProjectsBySelectorObjectsFromDir(process.cwd(), [{ namePattern: 'project' }])
 

@@ -54,7 +54,13 @@ fn copy_entry(src: &Path, dst: &Path, metadata: &fs::Metadata) -> io::Result<()>
 /// the target is not resolved either way, so a dangling link survives
 /// the copy as a dangling link.
 fn copy_symlink(src: &Path, dst: &Path, file_type: fs::FileType) -> io::Result<()> {
-    let target = fs::read_link(src)?;
+    let mut target = fs::read_link(src)?;
+    if target.is_absolute()
+        && let Some(parent) = src.parent()
+        && let Some(rel) = pathdiff::diff_paths(&target, parent)
+    {
+        target = rel;
+    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::FileTypeExt;

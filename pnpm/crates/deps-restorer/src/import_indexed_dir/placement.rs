@@ -24,6 +24,7 @@ pub(super) fn populate_dir<Reporter: self::Reporter>(
     dir_path: &Path,
     cas_paths: &HashMap<String, PathBuf>,
     placement: Placement,
+    preserve_symlinks: bool,
 ) -> Result<(), ImportIndexedDirError> {
     create_indexed_dirs(dir_path, cas_paths, placement)?;
 
@@ -41,6 +42,7 @@ pub(super) fn populate_dir<Reporter: self::Reporter>(
                 import_method,
                 store_path,
                 &dir_path.join(cleaned_entry),
+                preserve_symlinks,
             )
         })?;
 
@@ -110,21 +112,12 @@ pub(super) fn place_entry<Reporter: self::Reporter>(
     import_method: PackageImportMethod,
     store_path: &Path,
     target: &Path,
+    preserve_symlinks: bool,
 ) -> Result<(), ImportIndexedDirError> {
-    if fs::symlink_metadata(store_path).is_ok_and(|meta| meta.file_type().is_symlink()) {
-        if placement == Placement::Repair && file_matches_store_entry(target, store_path) {
-            return Ok(());
-        }
-        clear_dir_blocking_file::<Host>(target)?;
-        let _ = fs::remove_file(target);
-        return pnpm_fs::copy_dirent(store_path, target)
-            .map_err(|error| {
-                ImportIndexedDirError::LinkFile(crate::link_file::LinkFileError::Import {
-                    from: store_path.to_path_buf(),
-                    to: target.to_path_buf(),
-                    error,
-                })
-            });
+    if preserve_symlinks
+        && fs::symlink_metadata(store_path).is_ok_and(|meta| meta.file_type().is_symlink())
+    {
+        return place_symlink_entry(placement, store_path, target);
     }
     match placement {
         Placement::Fresh => {
@@ -137,6 +130,37 @@ pub(super) fn place_entry<Reporter: self::Reporter>(
             }
             clear_dir_blocking_file::<Host>(target)?;
             import_atomic::<Reporter>(logged_methods, import_method, store_path, target)
+        }
+    }
+}
+
+fn place_symlink_entry(
+    placement: Placement,
+    store_path: &Path,
+    target: &Path,
+) -> Result<(), ImportIndexedDirError> {
+    if placement == Placement::Repair && file_matches_store_entry(target, store_path) {
+        return Ok(());
+    }
+    clear_dir_blocking_file::<Host>(target)?;
+    let temp = super::staging::pick_stage_path(target);
+    if let Err(error) = pnpm_fs::copy_dirent(store_path, &temp) {
+        let _ = fs::remove_file(&temp);
+        return Err(ImportIndexedDirError::LinkFile(crate::link_file::LinkFileError::Import {
+            from: store_path.to_path_buf(),
+            to: target.to_path_buf(),
+            error,
+        }));
+    }
+    match pnpm_fs::rename_with_retry(&temp, target) {
+        Ok(()) => Ok(()),
+        Err(_) if file_matches_store_entry(target, store_path) => {
+            let _ = fs::remove_file(&temp);
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(&temp);
+            Err(ImportIndexedDirError::PlaceFile { from: temp, to: target.to_path_buf(), error })
         }
     }
 }

@@ -91,6 +91,7 @@ function patchNpmPacklistWalker (): void {
     this.injectRules = function (this: WalkerInstance, file: unknown, rules: string[], cb: () => void) {
       if (typeof file === 'symbol' && file.description === 'npm-packlist.rules.strict' && this.tree.package.files) {
         for (let rawFile of this.tree.package.files) {
+          if (rawFile.startsWith('!')) continue
           if (rawFile.startsWith('./')) rawFile = rawFile.slice(1)
           const inverse = `!${rawFile}`
           try {
@@ -99,7 +100,9 @@ function patchNpmPacklistWalker (): void {
               rules.unshift(inverse)
               this.requiredFiles.push(rawFile.startsWith('/') ? rawFile.slice(1) : rawFile)
             }
-          } catch {}
+          } catch (err: unknown) {
+            if (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') throw err
+          }
         }
       }
       return origInject.call(this, file, rules, cb)
@@ -108,13 +111,18 @@ function patchNpmPacklistWalker (): void {
   }
 }
 
+function isEscapingRelativePath (rel: string): boolean {
+  return rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)
+}
+
 function isInternalFileOrSymlink (pkgDir: string, relFile: string): boolean {
   const absPath = path.join(pkgDir, relFile)
   let lstat: fs.Stats
   try {
     lstat = fs.lstatSync(absPath)
-  } catch {
-    return false
+  } catch (err: unknown) {
+    if (util.types.isNativeError(err) && 'code' in err && err.code === 'ENOENT') return false
+    throw err
   }
   if (!lstat.isSymbolicLink()) {
     return true
@@ -122,19 +130,19 @@ function isInternalFileOrSymlink (pkgDir: string, relFile: string): boolean {
   const linkTarget = fs.readlinkSync(absPath)
   const resolvedTarget = path.resolve(path.dirname(absPath), linkTarget)
   const relToPkg = path.relative(pkgDir, resolvedTarget)
-  if (relToPkg.startsWith('..') || path.isAbsolute(relToPkg)) {
+  if (isEscapingRelativePath(relToPkg)) {
     return false
   }
   try {
     const realTarget = fs.realpathSync(absPath)
     const realPkgDir = fs.realpathSync(pkgDir)
     const relReal = path.relative(realPkgDir, realTarget)
-    if (relReal.startsWith('..') || path.isAbsolute(relReal)) {
+    if (isEscapingRelativePath(relReal)) {
       return false
     }
   } catch (err: unknown) {
     if (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') {
-      return false
+      throw err
     }
   }
   return true

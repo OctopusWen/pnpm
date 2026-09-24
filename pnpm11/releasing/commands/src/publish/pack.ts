@@ -469,12 +469,7 @@ export async function api (opts: PackOptions): Promise<PackResult> {
     if (isManifestEntry(name)) {
       return Buffer.byteLength(JSON.stringify(publishManifest, null, 2))
     }
-    let stat: fs.Stats
-    try {
-      stat = await fs.promises.lstat(source)
-    } catch {
-      return 0
-    }
+    const stat = await fs.promises.lstat(source)
     return stat.size
   }))
   const injectedSize = Object.values(injectedEntries).reduce((acc, content) => acc + Buffer.byteLength(content), 0)
@@ -622,7 +617,11 @@ async function packPkg (opts: {
     }
     const stat = fs.lstatSync(entry.source)
     if (stat.isSymbolicLink()) {
-      const linkname = fs.readlinkSync(entry.source)
+      let linkname = fs.readlinkSync(entry.source)
+      if (path.isAbsolute(linkname)) {
+        linkname = path.relative(path.dirname(entry.source), linkname)
+      }
+      linkname = linkname.replace(/\\/g, '/')
       pack.entry({ mode: 0o777, mtime, name: entry.name, type: 'symlink', linkname })
       continue
     }

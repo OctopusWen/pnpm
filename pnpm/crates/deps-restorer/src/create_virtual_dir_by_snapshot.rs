@@ -346,7 +346,12 @@ fn slot_import_opts(
     // import may be stale.
     let safe_to_skip = layout.enable_global_virtual_store() && !source_is_mutable;
     if interrupted_build || source_is_mutable || force_import {
-        return ImportIndexedDirOpts { force: true, keep_modules_dir: true, safe_to_skip };
+        return ImportIndexedDirOpts {
+            force: true,
+            keep_modules_dir: true,
+            safe_to_skip,
+            ..ImportIndexedDirOpts::default()
+        };
     }
     ImportIndexedDirOpts { safe_to_skip, ..ImportIndexedDirOpts::default() }
 }

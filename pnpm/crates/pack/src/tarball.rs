@@ -63,27 +63,49 @@ pub fn build_tarball<Sys: FsReadFile + FsIsExecutable>(
 
     let mut builder = tar::Builder::new(GzEncoder::new(writer, compression));
     for entry in compression_ordered_entries(files_map, injected) {
-        let file_data;
-        let (data, mode) = match entry.source {
-            EntrySource::Manifest(path) => (manifest_json, bin_mode::<Sys>(&bin_set, path)?),
-            EntrySource::Injected(data) => (data, REGULAR_MODE),
-            EntrySource::File(path) => {
-                if let Ok(meta) = std::fs::symlink_metadata(path)
-                    && meta.file_type().is_symlink()
-                {
-                    let target = std::fs::read_link(path)?;
-                    append_symlink(&mut builder, entry.name, &target)?;
-                    continue;
-                }
-                file_data = Sys::read_file(path)?;
-                (file_data.as_slice(), bin_mode::<Sys>(&bin_set, path)?)
-            }
-        };
-        append_entry(&mut builder, entry.name, data, mode)?;
+        append_tar_entry::<Sys, _>(&mut builder, &entry, manifest_json, &bin_set)?;
     }
 
     builder.into_inner()?.finish()?;
     Ok(())
+}
+
+fn append_tar_entry<Sys: FsReadFile + FsIsExecutable, Writer: Write>(
+    builder: &mut tar::Builder<Writer>,
+    entry: &QueuedEntry<'_>,
+    manifest_json: &[u8],
+    bin_set: &HashSet<&Path>,
+) -> io::Result<()> {
+    match entry.source {
+        EntrySource::Manifest(path) => {
+            append_entry(builder, entry.name, manifest_json, bin_mode::<Sys>(bin_set, path)?)
+        }
+        EntrySource::Injected(data) => append_entry(builder, entry.name, data, REGULAR_MODE),
+        EntrySource::File(path) => {
+            if is_symlink(path) {
+                let target = read_symlink_target(path)?;
+                return append_symlink(builder, entry.name, &target);
+            }
+            let file_data = Sys::read_file(path)?;
+            let mode = bin_mode::<Sys>(bin_set, path)?;
+            append_entry(builder, entry.name, &file_data, mode)
+        }
+    }
+}
+
+fn is_symlink(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|meta| meta.file_type().is_symlink())
+}
+
+fn read_symlink_target(path: &Path) -> io::Result<PathBuf> {
+    let target = std::fs::read_link(path)?;
+    if target.is_absolute()
+        && let Some(parent) = path.parent()
+        && let Some(rel) = pathdiff::diff_paths(&target, parent)
+    {
+        return Ok(rel);
+    }
+    Ok(target)
 }
 
 /// Every entry the archive will carry, in npm-packlist's compression
