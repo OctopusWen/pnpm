@@ -8,7 +8,7 @@ fn confined_all_files_fetcher_keeps_symlink_sources_without_resolve_symlinks() {
     use std::os::unix::fs::symlink;
 
     let dir = tempdir().unwrap();
-    let root = dir.path();
+    let root = fs::canonicalize(dir.path()).unwrap();
     fs::write(
         root.join("package.json"),
         r#"{ "name": "x", "version": "0.0.0", "files": ["link.txt"] }"#,
@@ -18,7 +18,7 @@ fn confined_all_files_fetcher_keeps_symlink_sources_without_resolve_symlinks() {
     symlink(root.join("real.txt"), root.join("link.txt")).unwrap();
 
     let output = DirectoryFetcher {
-        directory: root.to_path_buf(),
+        directory: root.clone(),
         include_only_package_files: false,
         resolve_symlinks: false,
         allow_path_escape: false,
@@ -29,7 +29,7 @@ fn confined_all_files_fetcher_keeps_symlink_sources_without_resolve_symlinks() {
     assert_eq!(output.files_map.get("link.txt"), Some(&root.join("link.txt")));
 
     let output_resolved = DirectoryFetcher {
-        directory: root.to_path_buf(),
+        directory: root.clone(),
         include_only_package_files: false,
         resolve_symlinks: true,
         allow_path_escape: false,
@@ -37,10 +37,7 @@ fn confined_all_files_fetcher_keeps_symlink_sources_without_resolve_symlinks() {
     .run()
     .unwrap();
 
-    assert_eq!(
-        output_resolved.files_map.get("link.txt"),
-        Some(&fs::canonicalize(root.join("real.txt")).unwrap()),
-    );
+    assert_eq!(output_resolved.files_map.get("link.txt"), Some(&root.join("real.txt")));
 }
 
 #[cfg(any(unix, windows))]

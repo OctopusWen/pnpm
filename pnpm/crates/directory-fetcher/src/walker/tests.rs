@@ -257,17 +257,17 @@ fn walk_all_files_keeps_confined_symlink_sources_without_resolve_symlinks() {
     use std::os::unix::fs::symlink;
 
     let dir = tempdir().unwrap();
-    let root = dir.path();
-    touch(root, "real.txt");
+    let root = fs::canonicalize(dir.path()).unwrap();
+    touch(&root, "real.txt");
     symlink(root.join("real.txt"), root.join("link.txt")).unwrap();
 
-    let out = walk_all_files(root, false, false).unwrap();
+    let out = walk_all_files(&root, false, false).unwrap();
     let src = out.get("link.txt").expect("link.txt entry");
     assert_eq!(src, &root.join("link.txt"));
 
-    let out_resolved = walk_all_files(root, true, false).unwrap();
+    let out_resolved = walk_all_files(&root, true, false).unwrap();
     let src_resolved = out_resolved.get("link.txt").expect("link.txt entry");
-    assert_eq!(src_resolved, &fs::canonicalize(root.join("real.txt")).unwrap());
+    assert_eq!(src_resolved, &root.join("real.txt"));
 }
 
 #[test]
