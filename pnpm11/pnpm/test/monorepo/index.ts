@@ -2247,7 +2247,6 @@ test('pnpm install --frozen-lockfile fails when lockfile contains an importer th
 
   await execPnpm(['install'])
 
-  // Remove pkg-b from workspace packages
   writeYamlFileSync('pnpm-workspace.yaml', { packages: ['pkg-a'] })
 
   await expect(

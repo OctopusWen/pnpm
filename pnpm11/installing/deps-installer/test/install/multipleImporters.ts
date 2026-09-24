@@ -2308,7 +2308,6 @@ test('frozenLockfile fails when a linked workspace package version is bumped and
 
   await mutateModules(importers, testDefaults({ allProjects }))
 
-  // Bump project-2 version to 2.0.0 so that workspace:^1.0.0 is no longer satisfied
   project2Manifest.version = '2.0.0'
 
   await expect(
@@ -2362,7 +2361,6 @@ test('frozenLockfile fails when lockfile contains an importer that was removed f
 
   await mutateModules(importers, testDefaults({ allProjects }))
 
-  // project-2 is removed from the workspace
   const remainingProjects = allProjects.slice(0, 1)
   const remainingImporters = importers.slice(0, 1)
 

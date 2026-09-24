@@ -3,6 +3,7 @@
 "@pnpm/installing.commands": patch
 "@pnpm/installing.deps-installer": patch
 "@pnpm/lockfile.verification": patch
+"pacquet": patch
 "pnpm": patch
 ---
 

@@ -305,15 +305,10 @@ pub(super) async fn decide_frozen_path<Reporter: self::Reporter>(
         // effect (the typed outcome) — the borrowed lockfile / manifests are
         // consumed again inside the frozen branch below.
         //
-        // pnpm's importer-set gate sits in the auto-frozen branch of
-        // `isFrozenInstallPossible`, which an explicit `--frozen-lockfile`
-        // short-circuits past, so a removed project does not fail the install
-        // there.
         let freshness = LockfileFreshnessInputs {
             scope: FreshnessScope {
                 allow_missing_dependency_free_importers: false,
                 allow_unresolved_optional_dependencies: true,
-                prune_stale_importers: false,
                 ..dispatch.freshness.scope
             },
             ..dispatch.freshness
