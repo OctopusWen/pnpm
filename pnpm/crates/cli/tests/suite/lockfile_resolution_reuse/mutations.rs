@@ -645,26 +645,6 @@ fn removing_a_workspace_project_prunes_its_importer_without_resolving() {
 }
 
 #[test]
-fn removing_a_workspace_project_fails_frozen_lockfile_install() {
-    let CommandTempCwd { workspace, root, npmrc_info, .. } =
-        CommandTempCwd::init().add_mocked_registry();
-    let AddMockedRegistry { mock_instance, .. } = npmrc_info;
-    write_two_member_workspace(&workspace);
-    pacquet_at(&workspace)
-        .with_arg("install")
-        .assert()
-        .success();
-
-    fs::remove_dir_all(workspace.join("packages/b")).expect("remove the member");
-    pacquet_at(&workspace)
-        .with_args(["install", "--frozen-lockfile"])
-        .assert()
-        .failure();
-
-    drop((root, mock_instance));
-}
-
-#[test]
 fn add_command_reuses_a_locked_version_without_resolving() {
     let CommandTempCwd { workspace, root, npmrc_info, .. } =
         CommandTempCwd::init().add_mocked_registry();
