@@ -102,11 +102,16 @@ export async function checkLinkedPackagesAreUpToDate (
       let linkedDir: string | undefined
       if (isLinked) {
         linkedDir = path.join(project.dir, lockfileRef.slice(5))
-      } else if (isInjected && lockfileRef.startsWith('file:')) {
-        const cleanRef = lockfileRef.slice(5).split('(')[0]
-        linkedDir = path.isAbsolute(cleanRef)
-          ? cleanRef
-          : (lockfileDir ? path.resolve(lockfileDir, cleanRef) : path.join(project.dir, cleanRef))
+      } else if (isInjected) {
+        const fileIndex = lockfileRef.indexOf('file:')
+        if (fileIndex !== -1) {
+          const cleanRef = lockfileRef.slice(fileIndex + 5).split('(')[0]
+          linkedDir = path.isAbsolute(cleanRef)
+            ? cleanRef
+            : (lockfileDir ? path.resolve(lockfileDir, cleanRef) : path.join(project.dir, cleanRef))
+        } else {
+          linkedDir = workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
+        }
       } else {
         linkedDir = workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
       }
@@ -132,7 +137,7 @@ export async function checkLinkedPackagesAreUpToDate (
       }
       if (!linkedPkg && workspacePackages?.has(pkgName)) {
         const pkgs = Array.from(workspacePackages.get(pkgName)!.values())
-        linkedPkg = pkgs.find(p => p.rootDir === linkedDir)?.manifest ?? pkgs[0]?.manifest
+        linkedPkg = pkgs.find(p => p.rootDir === linkedDir)?.manifest
       }
       // This should pass the same options to semver as @pnpm/resolving.npm-resolver
       const localPackageSatisfiesRange = availableRange === '*' || availableRange === '^' || availableRange === '~' ||
