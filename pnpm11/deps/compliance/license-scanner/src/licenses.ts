@@ -1,3 +1,5 @@
+import path from 'node:path'
+
 import { PnpmError } from '@pnpm/error'
 import type { LockfileObject } from '@pnpm/lockfile.fs'
 import type {
@@ -14,6 +16,7 @@ import {
   type LicenseNode,
   lockfileToLicenseNodeTree,
 } from './lockfileToLicenseNodeTree.js'
+import { readModulesManifest } from './readModulesManifest.js'
 
 export interface LicensePackage {
   belongsTo: DependenciesField
@@ -74,12 +77,15 @@ function appendDependenciesFromLicenseNode (
 export async function findDependencyLicenses (opts: {
   ignoreDependencies?: Set<string>
   include?: IncludedDependencies
+  dir?: string
   lockfileDir: string
   manifest: ProjectManifest
   storeDir: string
   virtualStoreDir: string
   virtualStoreDirMaxLength: number
   modulesDir?: string
+  nodeLinker?: 'hoisted' | 'isolated' | 'pnp'
+  shamefullyHoist?: boolean
   registriesByScope: RegistriesByScope
   registriesByPrefix?: Record<string, string>
   wantedLockfile: LockfileObject | null
@@ -94,13 +100,26 @@ export async function findDependencyLicenses (opts: {
     )
   }
 
+  const modulesDir = opts.modulesDir ?? 'node_modules'
+  const rootModulesDir = path.resolve(opts.lockfileDir, modulesDir)
+  const projectModulesDir = opts.dir ? path.resolve(opts.dir, modulesDir) : rootModulesDir
+  const modulesManifest = await readModulesManifest(rootModulesDir) ??
+    (projectModulesDir !== rootModulesDir ? await readModulesManifest(projectModulesDir) : null)
+
+  const nodeLinker = opts.nodeLinker ?? modulesManifest?.nodeLinker
+  const shamefullyHoist = opts.shamefullyHoist ?? modulesManifest?.shamefullyHoist ?? Boolean(modulesManifest?.publicHoistPattern?.includes('*'))
+
   const licenseNodeTree = await lockfileToLicenseNodeTree(opts.wantedLockfile, {
-    dir: opts.lockfileDir,
+    dir: opts.dir ?? opts.lockfileDir,
+    lockfileDir: opts.lockfileDir,
     modulesDir: opts.modulesDir,
     storeDir: opts.storeDir,
     virtualStoreDir: opts.virtualStoreDir,
     virtualStoreDirMaxLength: opts.virtualStoreDirMaxLength,
     include: opts.include,
+    nodeLinker,
+    shamefullyHoist,
+    hoistedLocations: modulesManifest?.hoistedLocations,
     registriesByScope: opts.registriesByScope,
     registriesByPrefix: opts.registriesByPrefix,
     includedImporterIds: opts.includedImporterIds,

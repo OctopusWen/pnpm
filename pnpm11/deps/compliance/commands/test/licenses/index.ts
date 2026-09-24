@@ -15,6 +15,8 @@ import { DEFAULT_OPTS } from './utils/index.js'
 
 const f = fixtures(import.meta.dirname)
 
+delete (process.stdout as { columns?: number }).columns
+
 test('pnpm licenses', async () => {
   const workspaceDir = tempDir()
   f.copy('complex-licenses', workspaceDir)
@@ -122,6 +124,51 @@ test('pnpm licenses: output as json', async () => {
   ])
   const _path = path.join('node_modules', '.pnpm')
   expect(packagesWithMIT[0].paths[0].includes(_path)).toBeTruthy()
+})
+
+test('pnpm licenses: path should be correct when nodeLinker is hoisted', async () => {
+  const workspaceDir = tempDir()
+  f.copy('simple-licenses', workspaceDir)
+
+  const storeDir = path.join(workspaceDir, 'store')
+  await install.handler({
+    ...DEFAULT_OPTS,
+    dir: workspaceDir,
+    pnpmHomeDir: '',
+    storeDir,
+    nodeLinker: 'hoisted',
+  })
+
+  const { output, exitCode } = await licenses.handler({
+    ...DEFAULT_OPTS,
+    dir: workspaceDir,
+    pnpmHomeDir: '',
+    long: false,
+    json: true,
+    nodeLinker: 'hoisted',
+    storeDir: path.resolve(storeDir, STORE_VERSION),
+  }, ['list'])
+
+  expect(exitCode).toBe(0)
+  expect(output).not.toHaveLength(0)
+  const parsedOutput = JSON.parse(output)
+  expect(parsedOutput).toEqual({
+    MIT: [
+      {
+        name: 'is-positive',
+        versions: ['3.1.0'],
+        paths: [path.join(workspaceDir, 'node_modules', 'is-positive')],
+        license: 'MIT',
+        author: expect.any(String),
+        homepage: expect.any(String),
+        description: expect.any(String),
+      },
+    ],
+  })
+  const packagesWithMIT = parsedOutput['MIT']
+  expect(packagesWithMIT[0].paths[0].includes('.pnpm')).toBeFalsy()
+  const packageJsonPath = path.join(packagesWithMIT[0].paths[0], 'package.json')
+  expect(fs.existsSync(packageJsonPath)).toBeTruthy()
 })
 
 test('pnpm licenses: path should be correct for workspaces', async () => {

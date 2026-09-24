@@ -21,6 +21,8 @@ export type LicensesCommandOptions = {
 | 'dev'
 | 'dir'
 | 'lockfileDir'
+| 'nodeLinker'
+| 'shamefullyHoist'
 | 'registriesByScope'
 | 'registriesByPrefix'
 | 'optional'
@@ -72,11 +74,14 @@ export async function licensesList (opts: LicensesCommandOptions): Promise<Licen
 
   const licensePackages = await findDependencyLicenses({
     include,
+    dir: opts.dir,
     lockfileDir: opts.lockfileDir ?? opts.dir,
     storeDir,
     virtualStoreDir: opts.virtualStoreDir ?? path.join(opts.modulesDir ?? 'node_modules', '.pnpm'),
     virtualStoreDirMaxLength: opts.virtualStoreDirMaxLength,
     modulesDir: opts.modulesDir,
+    nodeLinker: opts.nodeLinker,
+    shamefullyHoist: opts.shamefullyHoist,
     registriesByScope: opts.registriesByScope,
     registriesByPrefix: opts.registriesByPrefix,
     wantedLockfile: lockfile,

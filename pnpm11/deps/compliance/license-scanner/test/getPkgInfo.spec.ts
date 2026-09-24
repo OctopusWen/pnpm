@@ -172,4 +172,103 @@ describe('getPkgInfo', () => {
     expect(result.author).toBe('Steve Mao')
     expect(result.description).toBe('String left pad')
   })
+
+  test('should resolve path from hoistedLocations when nodeLinker is hoisted', async () => {
+    const digest = '1122334455667788'
+    writeCafsFile(storeDir, digest, JSON.stringify({
+      name: 'is-positive',
+      version: '3.1.0',
+      license: 'MIT',
+    }))
+
+    const pkgId = 'is-positive@3.1.0'
+    const integrity = 'sha512-test/integrity002'
+    const filesIndex: PackageFilesIndex = {
+      algo: 'sha256',
+      files: new Map([
+        ['package.json', { digest, mode: 0o644, size: 0 }],
+      ]),
+    }
+    storeIndex.set(storeIndexKey(integrity, pkgId), filesIndex)
+
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pnpm-hoisted-test-'))
+    const hoistedPkgPath = path.join(workspaceDir, 'node_modules', 'is-positive')
+    fs.mkdirSync(hoistedPkgPath, { recursive: true })
+
+    const result = await getPkgInfo(
+      {
+        name: 'is-positive',
+        version: '3.1.0',
+        id: pkgId,
+        depPath: pkgId,
+        snapshot: {
+          resolution: { integrity },
+        },
+        registriesByScope: DEFAULT_REGISTRIES_BY_SCOPE,
+      },
+      {
+        ...defaultGetOpts(),
+        dir: workspaceDir,
+        lockfileDir: workspaceDir,
+        modulesDir: 'node_modules',
+        nodeLinker: 'hoisted',
+        hoistedLocations: {
+          'is-positive@3.1.0': ['node_modules/is-positive'],
+        },
+      }
+    )
+
+    expect(result.path).toBe(hoistedPkgPath)
+    expect(result.path!.includes('.pnpm')).toBeFalsy()
+
+    fs.rmSync(workspaceDir, { recursive: true, force: true })
+  })
+
+  test('should resolve path to node_modules when shamefullyHoist is enabled', async () => {
+    const digest = '2233445566778899'
+    writeCafsFile(storeDir, digest, JSON.stringify({
+      name: 'is-positive',
+      version: '3.1.0',
+      license: 'MIT',
+    }))
+
+    const pkgId = 'is-positive@3.1.0'
+    const integrity = 'sha512-test/integrity003'
+    const filesIndex: PackageFilesIndex = {
+      algo: 'sha256',
+      files: new Map([
+        ['package.json', { digest, mode: 0o644, size: 0 }],
+      ]),
+    }
+    storeIndex.set(storeIndexKey(integrity, pkgId), filesIndex)
+
+    const workspaceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pnpm-shameful-test-'))
+    const hoistedPkgPath = path.join(workspaceDir, 'node_modules', 'is-positive')
+    fs.mkdirSync(hoistedPkgPath, { recursive: true })
+
+    const result = await getPkgInfo(
+      {
+        name: 'is-positive',
+        version: '3.1.0',
+        id: pkgId,
+        depPath: pkgId,
+        snapshot: {
+          resolution: { integrity },
+        },
+        registriesByScope: DEFAULT_REGISTRIES_BY_SCOPE,
+      },
+      {
+        ...defaultGetOpts(),
+        dir: workspaceDir,
+        lockfileDir: workspaceDir,
+        modulesDir: 'node_modules',
+        shamefullyHoist: true,
+      }
+    )
+
+    expect(result.path).toBe(hoistedPkgPath)
+    expect(result.path!.includes('.pnpm')).toBeFalsy()
+
+    fs.rmSync(workspaceDir, { recursive: true, force: true })
+  })
 })

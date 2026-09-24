@@ -1,3 +1,4 @@
+import fs from 'node:fs'
 import path from 'node:path'
 
 import { resolveLicense } from '@pnpm/deps.compliance.license-resolver'
@@ -35,7 +36,11 @@ export interface GetPackageInfoOptions {
   virtualStoreDir: string
   virtualStoreDirMaxLength: number
   dir: string
+  lockfileDir?: string
   modulesDir: string
+  nodeLinker?: 'hoisted' | 'isolated' | 'pnp'
+  shamefullyHoist?: boolean
+  hoistedLocations?: Record<string, string[]>
   supportedArchitectures?: SupportedArchitectures
 }
 
@@ -101,18 +106,63 @@ export async function getPkgInfo (
 
   // Determine the path to the package as known by the user
   const modulesDir = opts.modulesDir ?? 'node_modules'
-  const virtualStoreDir = pathAbsolute(
-    opts.virtualStoreDir ?? path.join(modulesDir, '.pnpm'),
-    opts.dir
-  )
+  const lockfileDir = opts.lockfileDir ?? opts.dir
+  const isHoisted = opts.nodeLinker === 'hoisted'
+  const isShamefullyHoist = opts.shamefullyHoist ?? false
 
-  // TODO: fix issue that path is only correct when using node-linked=isolated
-  const packageModulePath = path.join(
-    virtualStoreDir,
-    depPathToFilename(pkg.depPath, opts.virtualStoreDirMaxLength),
-    modulesDir,
-    manifest.name
-  )
+  let packageModulePath: string
+
+  if (isHoisted) {
+    const locations = opts.hoistedLocations?.[pkg.depPath] ??
+      (pkg.depPath.startsWith('/') ? opts.hoistedLocations?.[pkg.depPath.slice(1)] : opts.hoistedLocations?.[`/${pkg.depPath}`])
+    if (locations?.length) {
+      const resolvedLocations = locations.map((loc) => path.resolve(lockfileDir, loc))
+      packageModulePath =
+        resolvedLocations.find((loc) => loc.startsWith(path.resolve(opts.dir)) && fs.existsSync(loc)) ??
+        resolvedLocations.find((loc) => fs.existsSync(loc)) ??
+        resolvedLocations[0]
+    } else {
+      const candidateInDir = path.resolve(opts.dir, modulesDir, manifest.name)
+      const candidateInLockfileDir = path.resolve(lockfileDir, modulesDir, manifest.name)
+      if (fs.existsSync(candidateInDir)) {
+        packageModulePath = candidateInDir
+      } else if (fs.existsSync(candidateInLockfileDir)) {
+        packageModulePath = candidateInLockfileDir
+      } else {
+        packageModulePath = candidateInLockfileDir
+      }
+    }
+  } else if (isShamefullyHoist) {
+    const candidateInDir = path.resolve(opts.dir, modulesDir, manifest.name)
+    const candidateInLockfileDir = path.resolve(lockfileDir, modulesDir, manifest.name)
+    if (fs.existsSync(candidateInDir)) {
+      packageModulePath = candidateInDir
+    } else if (fs.existsSync(candidateInLockfileDir)) {
+      packageModulePath = candidateInLockfileDir
+    } else {
+      const virtualStoreDir = pathAbsolute(
+        opts.virtualStoreDir ?? path.join(modulesDir, '.pnpm'),
+        lockfileDir
+      )
+      packageModulePath = path.join(
+        virtualStoreDir,
+        depPathToFilename(pkg.depPath, opts.virtualStoreDirMaxLength),
+        modulesDir,
+        manifest.name
+      )
+    }
+  } else {
+    const virtualStoreDir = pathAbsolute(
+      opts.virtualStoreDir ?? path.join(modulesDir, '.pnpm'),
+      lockfileDir
+    )
+    packageModulePath = path.join(
+      virtualStoreDir,
+      depPathToFilename(pkg.depPath, opts.virtualStoreDirMaxLength),
+      modulesDir,
+      manifest.name
+    )
+  }
 
   const licenseInfo = await resolveLicense({ manifest, files })
 

@@ -1,7 +1,7 @@
 use super::{
     BelongsTo, Config, Include, LicenseInfo, LicensesArgs, LicensesDependencyOptions,
     collect_dependencies, compare_package_names, extract_license_author, extract_license_homepage,
-    render_package_name, select_newer_version,
+    render::render_package_name, select_newer_version,
 };
 use pnpm_lockfile::{Lockfile, PeerEdgeOptions};
 use pnpm_package_is_installable::InstallabilityOptions;
