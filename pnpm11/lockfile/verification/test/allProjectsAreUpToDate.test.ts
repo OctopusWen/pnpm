@@ -574,6 +574,50 @@ test('allProjectsAreUpToDate(): returns false if an aliased injected dependency 
   })).toBeFalsy()
 })
 
+test('allProjectsAreUpToDate(): returns true when an injected dependency has a peer dependency containing file:', async () => {
+  expect(await allProjectsAreUpToDate([
+    {
+      id: 'bar' as ProjectId,
+      manifest: {
+        dependencies: {
+          'is-positive': '^1.0.0',
+        },
+        dependenciesMeta: {
+          'is-positive': {
+            injected: true,
+          },
+        },
+      },
+      rootDir: 'bar' as ProjectRootDir,
+    },
+  ], {
+    autoInstallPeers: false,
+    catalogs: {},
+    excludeLinksFromLockfile: false,
+    linkWorkspacePackages: true,
+    wantedLockfile: {
+      importers: {
+        ['bar' as ProjectId]: {
+          dependencies: {
+            'is-positive': '1.0.0(bar@file:../bar)',
+          },
+          specifiers: {
+            'is-positive': '^1.0.0',
+          },
+          dependenciesMeta: {
+            'is-positive': {
+              injected: true,
+            },
+          },
+        },
+      },
+      lockfileVersion: LOCKFILE_VERSION,
+    },
+    workspacePackages: new Map(),
+    lockfileDir: '',
+  })).toBeTruthy()
+})
+
 test('allProjectsAreUpToDate(): returns false when link target is missing even if same-name workspace package exists at another directory', async () => {
   expect(await allProjectsAreUpToDate([
     {

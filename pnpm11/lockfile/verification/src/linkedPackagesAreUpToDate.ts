@@ -99,24 +99,25 @@ export async function checkLinkedPackagesAreUpToDate (
       if ((isLinked || isInjected) && getVersionSelectorType(availableRange)?.type === 'tag') {
         return { upToDate: true }
       }
+      const refWithoutPeers = lockfileRef.split('(')[0]
       let linkedDir: string | undefined
       if (isLinked) {
         linkedDir = path.join(project.dir, lockfileRef.slice(5))
       } else if (isInjected) {
-        const fileIndex = lockfileRef.indexOf('file:')
+        const fileIndex = refWithoutPeers.indexOf('file:')
         if (fileIndex !== -1) {
-          const cleanRef = lockfileRef.slice(fileIndex + 5).split('(')[0]
+          const cleanRef = refWithoutPeers.slice(fileIndex + 5)
           linkedDir = path.isAbsolute(cleanRef)
             ? cleanRef
             : (lockfileDir ? path.resolve(lockfileDir, cleanRef) : path.join(project.dir, cleanRef))
         } else {
-          linkedDir = workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
+          linkedDir = workspacePackages?.get(pkgName)?.get(refWithoutPeers)?.rootDir ?? workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
         }
       } else {
-        linkedDir = workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
+        linkedDir = workspacePackages?.get(pkgName)?.get(refWithoutPeers)?.rootDir ?? workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
       }
       if (!linkedDir) {
-        if (!isLinked && !lockfileRef.startsWith('file:') && !lockfileRef.includes('@file:') && workspacePackages?.has(pkgName)) {
+        if (!isLinked && !refWithoutPeers.startsWith('file:') && !refWithoutPeers.includes('@file:') && workspacePackages?.has(pkgName)) {
           const pkgs = Array.from(workspacePackages.get(pkgName)!.values())
           const matchingPkg = pkgs.find(p =>
             availableRange === '*' || availableRange === '^' || availableRange === '~' ||
