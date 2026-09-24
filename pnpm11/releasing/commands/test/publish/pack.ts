@@ -232,7 +232,7 @@ test.each([false, true])('pack: does not bundle ancestor dependencies beyond its
   prepare({
     name: 'app',
     version: '1.0.0',
-    bundledDependencies: ['outside-direct', 'inside'],
+    bundledDependencies: ['outside-direct', 'outside-link', '../../../outside', 'inside'],
   }, { tempDir: appDir })
   const modulesDir = path.join(appDir, 'node_modules')
   fs.mkdirSync(path.join(modulesDir, 'inside'), { recursive: true })
@@ -247,6 +247,7 @@ test.each([false, true])('pack: does not bundle ancestor dependencies beyond its
     fs.writeFileSync(path.join(dependencyDir, 'package.json'), JSON.stringify({ name, version: '1.0.0' }))
     fs.writeFileSync(path.join(dependencyDir, 'index.js'), 'outside the resolution root')
   }
+  fs.symlinkSync(path.join(dir, 'node_modules', 'outside-direct'), path.join(modulesDir, 'outside-link'), 'junction')
 
   await pack.handler({
     ...DEFAULT_OPTS,

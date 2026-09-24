@@ -109,12 +109,19 @@ function getNestedBundledDeps (pkg: Record<string, unknown>): string[] {
 }
 
 function resolveDependency (depName: string, fromDir: string, rootDir: string): string | undefined {
+  // Bundle names come from package.json; reject paths before joining them under node_modules.
+  if (typeof depName !== 'string' || !/^(?:@[^/\\]+\/)?[^/\\]+$/.test(depName) || depName.split('/').some(part => part === '.' || part === '..')) return undefined
+  const canonicalRootDir = fs.realpathSync(rootDir)
   let currentDir = fromDir
   while (true) {
     const candidate = path.join(currentDir, 'node_modules', depName)
     try {
       const stat = fs.statSync(path.join(candidate, 'package.json'))
-      if (stat.isFile()) return candidate
+      if (stat.isFile()) {
+        const canonicalCandidate = fs.realpathSync(candidate)
+        if (canonicalCandidate !== canonicalRootDir && !isSubdir(canonicalRootDir, canonicalCandidate)) return undefined
+        return candidate
+      }
     } catch (err: unknown) {
       if (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') {
         throw err
