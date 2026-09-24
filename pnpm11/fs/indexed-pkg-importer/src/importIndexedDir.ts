@@ -105,10 +105,17 @@ export function importIndexedDir (
       const finalTarget = path.isAbsolute(target) ? target : path.resolve(path.dirname(finalDest), target)
       try {
         fs.unlinkSync(finalDest)
-      } catch {
+      } catch (err: unknown) {
         try {
           fs.rmdirSync(finalDest)
-        } catch {} // eslint-disable-line:no-empty
+        } catch (rmdirErr: unknown) {
+          if (
+            (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') &&
+            (!util.types.isNativeError(rmdirErr) || !('code' in rmdirErr) || rmdirErr.code !== 'ENOENT')
+          ) {
+            throw err
+          }
+        }
       }
       fs.mkdirSync(finalTarget, { recursive: true })
       fs.symlinkSync(finalTarget, finalDest, 'junction')

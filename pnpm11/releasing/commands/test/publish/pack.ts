@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import util from 'node:util'
 
 import { beforeAll, describe, expect, jest, test } from '@jest/globals'
 import { prepare, preparePackages, tempDir } from '@pnpm/prepare'
@@ -1381,12 +1382,18 @@ test('pack: recursive pack with filter', async () => {
 })
 
 let canSymlink = true
+const probe = path.join(process.cwd(), `symlink-probe-${process.pid}`)
 try {
-  const probe = path.join(process.cwd(), `symlink-probe-${process.pid}`)
   fs.symlinkSync(process.cwd(), probe, 'dir')
-  fs.unlinkSync(probe)
-} catch {
-  canSymlink = false
+  try {
+    fs.unlinkSync(probe)
+  } catch {} // eslint-disable-line:no-empty
+} catch (err: unknown) {
+  if (util.types.isNativeError(err) && 'code' in err && (err.code === 'EPERM' || err.code === 'EACCES')) {
+    canSymlink = false
+  } else {
+    throw err
+  }
 }
 const testWithSymlinks = canSymlink ? test : test.skip
 

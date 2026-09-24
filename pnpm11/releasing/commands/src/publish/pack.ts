@@ -470,7 +470,7 @@ export async function api (opts: PackOptions): Promise<PackResult> {
       return Buffer.byteLength(JSON.stringify(publishManifest, null, 2))
     }
     const stat = await fs.promises.lstat(source)
-    return stat.size
+    return stat.isSymbolicLink() ? 0 : stat.size
   }))
   const injectedSize = Object.values(injectedEntries).reduce((acc, content) => acc + Buffer.byteLength(content), 0)
   const unpackedSize = sizes.reduce((acc, size) => acc + size, 0) + injectedSize
