@@ -1,7 +1,7 @@
 #[cfg(unix)]
-use super::FORCE_KEEP;
+use super::{super::ImportIndexedDirError, FORCE_KEEP};
 use super::{
-    super::{ImportIndexedDirError, ImportIndexedDirOpts, import_indexed_dir},
+    super::{ImportIndexedDirOpts, import_indexed_dir},
     FORCE_SHARED, cas_map, write_source,
 };
 use pnpm_config::PackageImportMethod;
