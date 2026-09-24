@@ -264,6 +264,250 @@ test('allProjectsAreUpToDate(): returns false if aliased workspace: dependency v
   })).toBeFalsy()
 })
 
+test('allProjectsAreUpToDate(): works with aliased dist-tag dependency (npm:foo@latest)', async () => {
+  expect(await allProjectsAreUpToDate([
+    {
+      id: 'bar' as ProjectId,
+      manifest: {
+        dependencies: {
+          alias: 'npm:@scope/foo@latest',
+        },
+      },
+      rootDir: 'bar' as ProjectRootDir,
+    },
+    {
+      id: 'foo' as ProjectId,
+      manifest: {
+        name: '@scope/foo',
+        version: '1.0.0',
+      },
+      rootDir: 'foo' as ProjectRootDir,
+    },
+  ], {
+    autoInstallPeers: false,
+    catalogs: {},
+    excludeLinksFromLockfile: false,
+    linkWorkspacePackages: true,
+    wantedLockfile: {
+      importers: {
+        ['bar' as ProjectId]: {
+          dependencies: {
+            alias: 'link:../foo',
+          },
+          specifiers: {
+            alias: 'npm:@scope/foo@latest',
+          },
+        },
+        ['foo' as ProjectId]: {
+          specifiers: {},
+        },
+      },
+      lockfileVersion: LOCKFILE_VERSION,
+    },
+    workspacePackages: new Map([
+      ['@scope/foo', new Map([
+        ['1.0.0', {
+          id: 'foo' as ProjectId,
+          manifest: {
+            name: '@scope/foo',
+            version: '1.0.0',
+          },
+          rootDir: 'foo' as ProjectRootDir,
+        }],
+      ])],
+    ]),
+    lockfileDir: '',
+  })).toBeTruthy()
+})
+
+test('allProjectsAreUpToDate(): returns true for non-workspace range when lockfile has higher registry version and matching workspace package exists', async () => {
+  expect(await allProjectsAreUpToDate([
+    {
+      id: 'bar' as ProjectId,
+      manifest: {
+        dependencies: {
+          foo: '^1.0.0',
+        },
+      },
+      rootDir: 'bar' as ProjectRootDir,
+    },
+    {
+      id: 'foo' as ProjectId,
+      manifest: {
+        name: 'foo',
+        version: '1.0.0',
+      },
+      rootDir: 'foo' as ProjectRootDir,
+    },
+  ], {
+    autoInstallPeers: false,
+    catalogs: {},
+    excludeLinksFromLockfile: false,
+    linkWorkspacePackages: true,
+    wantedLockfile: {
+      importers: {
+        ['bar' as ProjectId]: {
+          dependencies: {
+            foo: '1.5.0',
+          },
+          specifiers: {
+            foo: '^1.0.0',
+          },
+        },
+        ['foo' as ProjectId]: {
+          specifiers: {},
+        },
+      },
+      lockfileVersion: LOCKFILE_VERSION,
+    },
+    workspacePackages: new Map([
+      ['foo', new Map([
+        ['1.0.0', {
+          id: 'foo' as ProjectId,
+          manifest: {
+            name: 'foo',
+            version: '1.0.0',
+          },
+          rootDir: 'foo' as ProjectRootDir,
+        }],
+      ])],
+    ]),
+    lockfileDir: '',
+  })).toBeTruthy()
+})
+
+test('allProjectsAreUpToDate(): returns false if injected workspace dependency version is out of date', async () => {
+  expect(await allProjectsAreUpToDate([
+    {
+      id: 'bar' as ProjectId,
+      manifest: {
+        dependencies: {
+          foo: 'workspace:1.0.0',
+        },
+        dependenciesMeta: {
+          foo: {
+            injected: true,
+          },
+        },
+      },
+      rootDir: 'bar' as ProjectRootDir,
+    },
+    {
+      id: 'foo' as ProjectId,
+      manifest: {
+        name: 'foo',
+        version: '2.0.0',
+      },
+      rootDir: 'foo' as ProjectRootDir,
+    },
+  ], {
+    autoInstallPeers: false,
+    catalogs: {},
+    excludeLinksFromLockfile: false,
+    linkWorkspacePackages: true,
+    wantedLockfile: {
+      importers: {
+        ['bar' as ProjectId]: {
+          dependencies: {
+            foo: 'file:../foo',
+          },
+          specifiers: {
+            foo: 'workspace:1.0.0',
+          },
+          dependenciesMeta: {
+            foo: {
+              injected: true,
+            },
+          },
+        },
+        ['foo' as ProjectId]: {
+          specifiers: {},
+        },
+      },
+      lockfileVersion: LOCKFILE_VERSION,
+    },
+    workspacePackages: new Map([
+      ['foo', new Map([
+        ['2.0.0', {
+          id: 'foo' as ProjectId,
+          manifest: {
+            name: 'foo',
+            version: '2.0.0',
+          },
+          rootDir: 'foo' as ProjectRootDir,
+        }],
+      ])],
+    ]),
+    lockfileDir: '',
+  })).toBeFalsy()
+})
+
+test('allProjectsAreUpToDate(): returns true if injected workspace dependency version satisfies range', async () => {
+  expect(await allProjectsAreUpToDate([
+    {
+      id: 'bar' as ProjectId,
+      manifest: {
+        dependencies: {
+          foo: 'workspace:^1.0.0',
+        },
+        dependenciesMeta: {
+          foo: {
+            injected: true,
+          },
+        },
+      },
+      rootDir: 'bar' as ProjectRootDir,
+    },
+    {
+      id: 'foo' as ProjectId,
+      manifest: {
+        name: 'foo',
+        version: '1.2.0',
+      },
+      rootDir: 'foo' as ProjectRootDir,
+    },
+  ], {
+    autoInstallPeers: false,
+    catalogs: {},
+    excludeLinksFromLockfile: false,
+    linkWorkspacePackages: true,
+    wantedLockfile: {
+      importers: {
+        ['bar' as ProjectId]: {
+          dependencies: {
+            foo: 'file:../foo',
+          },
+          specifiers: {
+            foo: 'workspace:^1.0.0',
+          },
+          dependenciesMeta: {
+            foo: {
+              injected: true,
+            },
+          },
+        },
+        ['foo' as ProjectId]: {
+          specifiers: {},
+        },
+      },
+      lockfileVersion: LOCKFILE_VERSION,
+    },
+    workspacePackages: new Map([
+      ['foo', new Map([
+        ['1.2.0', {
+          id: 'foo' as ProjectId,
+          manifest: {
+            name: 'foo',
+            version: '1.2.0',
+          },
+          rootDir: 'foo' as ProjectRootDir,
+        }],
+      ])],
+    ]),
+    lockfileDir: '',
+  })).toBeTruthy()
+})
+
 test('allProjectsAreUpToDate(): returns false if the aliased dependency version is out of date', async () => {
   expect(await allProjectsAreUpToDate([
     {

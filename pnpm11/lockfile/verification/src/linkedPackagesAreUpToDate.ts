@@ -64,9 +64,6 @@ export async function checkLinkedPackagesAreUpToDate (
         project.manifest.dependenciesMeta?.[depName]?.injected ||
         project.snapshot.dependenciesMeta?.[depName]?.injected
       )
-      if (isInjected) {
-        return { upToDate: true }
-      }
       if (refIsLocalDirectory(project.snapshot.specifiers[depName])) {
         // When a file: specifier resolves to link: in the lockfile
         // (e.g. injected self-references), it's a local link with no
@@ -87,7 +84,7 @@ export async function checkLinkedPackagesAreUpToDate (
       }
       const isLinked = lockfileRef.startsWith('link:')
       if (
-        isLinked &&
+        (isLinked || isInjected) &&
         (
           currentSpec.startsWith('link:') ||
           currentSpec.startsWith('file:') ||
@@ -96,15 +93,23 @@ export async function checkLinkedPackagesAreUpToDate (
       ) {
         return { upToDate: true }
       }
+      const { name: pkgName, range: availableRange } = getPackageNameAndRange(depName, currentSpec)
       // https://github.com/pnpm/pnpm/issues/6592
       // if the dependency is linked and the specified version type is tag, we consider it to be up-to-date to skip full resolution.
-      if (isLinked && getVersionSelectorType(currentSpec)?.type === 'tag') {
+      if ((isLinked || isInjected) && getVersionSelectorType(availableRange)?.type === 'tag') {
         return { upToDate: true }
       }
-      const { name: pkgName, range: availableRange } = getPackageNameAndRange(depName, currentSpec)
-      const linkedDir = isLinked
-        ? path.join(project.dir, lockfileRef.slice(5))
-        : workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
+      let linkedDir: string | undefined
+      if (isLinked) {
+        linkedDir = path.join(project.dir, lockfileRef.slice(5))
+      } else if (isInjected && lockfileRef.startsWith('file:')) {
+        const cleanRef = lockfileRef.slice(5).split('(')[0]
+        linkedDir = path.isAbsolute(cleanRef)
+          ? cleanRef
+          : (lockfileDir ? path.resolve(lockfileDir, cleanRef) : path.join(project.dir, cleanRef))
+      } else {
+        linkedDir = workspacePackages?.get(pkgName)?.get(lockfileRef)?.rootDir
+      }
       if (!linkedDir) {
         if (!isLinked && !lockfileRef.startsWith('file:') && !lockfileRef.includes('@file:') && workspacePackages?.has(pkgName)) {
           const pkgs = Array.from(workspacePackages.get(pkgName)!.values())
@@ -112,11 +117,34 @@ export async function checkLinkedPackagesAreUpToDate (
             availableRange === '*' || availableRange === '^' || availableRange === '~' ||
             semver.satisfies(p.manifest.version, availableRange, { loose: true })
           )
-          if (matchingPkg && (linkWorkspacePackages || currentSpec.startsWith('workspace:'))) {
+          if (matchingPkg && currentSpec.startsWith('workspace:')) {
             return {
               upToDate: false,
               detailedReason: `Workspace package "${depName}" (${matchingPkg.manifest.version}) satisfies range "${currentSpec}" but is not linked in lockfile`,
             }
+          }
+        }
+        return { upToDate: true }
+      }
+      let linkedPkg: DependencyManifest | undefined
+      if (linkedDir) {
+        linkedPkg = manifestsByDir[linkedDir] ?? await safeReadPackageJsonFromDir(linkedDir)
+      }
+      if (!linkedPkg && workspacePackages?.has(pkgName)) {
+        const pkgs = Array.from(workspacePackages.get(pkgName)!.values())
+        linkedPkg = pkgs.find(p => p.rootDir === linkedDir)?.manifest ?? pkgs[0]?.manifest
+      }
+      // This should pass the same options to semver as @pnpm/resolving.npm-resolver
+      const localPackageSatisfiesRange = availableRange === '*' || availableRange === '^' || availableRange === '~' ||
+        Boolean(linkedPkg && semver.satisfies(linkedPkg.version, availableRange, { loose: true }))
+      if (isInjected) {
+        if (!linkedPkg && !currentSpec.startsWith('workspace:') && fs.existsSync(linkedDir)) {
+          return { upToDate: true }
+        }
+        if (!localPackageSatisfiesRange) {
+          return {
+            upToDate: false,
+            detailedReason: `Injected workspace package "${depName}" (${linkedPkg?.version ?? 'unknown'}) does not satisfy range "${currentSpec}"`,
           }
         }
         return { upToDate: true }
@@ -126,10 +154,6 @@ export async function checkLinkedPackagesAreUpToDate (
         // workspace:x.x.x dependency
         return { upToDate: true }
       }
-      const linkedPkg = manifestsByDir[linkedDir] ?? await safeReadPackageJsonFromDir(linkedDir)
-      // This should pass the same options to semver as @pnpm/resolving.npm-resolver
-      const localPackageSatisfiesRange = availableRange === '*' || availableRange === '^' || availableRange === '~' ||
-        Boolean(linkedPkg && semver.satisfies(linkedPkg.version, availableRange, { loose: true }))
       if (isLinked !== localPackageSatisfiesRange) {
         const detailedReason = isLinked
           ? `Linked workspace package "${depName}" (${linkedPkg?.version ?? 'unknown'}) does not satisfy range "${currentSpec}"`

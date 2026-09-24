@@ -2228,7 +2228,7 @@ test('pnpm install --frozen-lockfile fails when workspace package version is bum
 
   await expect(
     execPnpm(['install', '--frozen-lockfile'])
-  ).rejects.toThrow()
+  ).rejects.toThrow('ERR_PNPM_OUTDATED_LOCKFILE')
 })
 
 test('pnpm install --frozen-lockfile fails when lockfile contains an importer that was removed from workspace', async () => {
@@ -2252,7 +2252,40 @@ test('pnpm install --frozen-lockfile fails when lockfile contains an importer th
 
   await expect(
     execPnpm(['install', '--frozen-lockfile'])
-  ).rejects.toThrow()
+  ).rejects.toThrow(/contains removed project/)
+})
+
+test('pnpm install --frozen-lockfile fails when an injected workspace package version is bumped and no longer satisfies dependency range', async () => {
+  preparePackages([
+    {
+      name: 'pkg-a',
+      version: '1.0.0',
+      dependencies: {
+        'pkg-b': 'workspace:1.0.0',
+      },
+      dependenciesMeta: {
+        'pkg-b': {
+          injected: true,
+        },
+      },
+    },
+    {
+      name: 'pkg-b',
+      version: '1.0.0',
+    },
+  ])
+
+  writeYamlFileSync('pnpm-workspace.yaml', { packages: ['**'] })
+
+  await execPnpm(['install'])
+
+  const pkgBManifest = JSON.parse(fs.readFileSync('pkg-b/package.json', 'utf8'))
+  pkgBManifest.version = '2.0.0'
+  fs.writeFileSync('pkg-b/package.json', JSON.stringify(pkgBManifest, null, 2))
+
+  await expect(
+    execPnpm(['install', '--frozen-lockfile'])
+  ).rejects.toThrow('ERR_PNPM_OUTDATED_LOCKFILE')
 })
 
 
