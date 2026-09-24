@@ -111,8 +111,7 @@ export function importIndexedDir (
         const rel = path.relative(stage, dest)
         const finalDest = path.join(newDir, rel)
         const finalTarget = path.isAbsolute(target) ? target : path.resolve(path.dirname(finalDest), target)
-        const relFromNewDir = path.relative(newDir, finalTarget)
-        if (relFromNewDir.startsWith('..') || path.isAbsolute(relFromNewDir)) {
+        if (escapesDir(newDir, finalTarget)) {
           throw new Error(`Directory junction target "${target}" escapes package root "${newDir}"`)
         }
         try {
@@ -564,16 +563,13 @@ function copySymlink (src: string, dest: string, opts?: ImportIndexedDirOptions,
     fs.symlinkSync(target, dest, type)
   } catch (err: unknown) {
     if (process.platform === 'win32' && type === 'dir') {
+      const resolved = path.isAbsolute(target)
+        ? target
+        : path.resolve(path.dirname(dest), target)
+      if (pkgDir && escapesDir(pkgDir, resolved)) {
+        throw new Error(`Directory junction target "${target}" escapes package root "${pkgDir}"`, { cause: err })
+      }
       try {
-        const resolved = path.isAbsolute(target)
-          ? target
-          : path.resolve(path.dirname(dest), target)
-        if (pkgDir) {
-          const relFromPkg = path.relative(pkgDir, resolved)
-          if (relFromPkg.startsWith('..') || path.isAbsolute(relFromPkg)) {
-            throw new Error(`Directory junction target "${target}" escapes package root "${pkgDir}"`, { cause: err })
-          }
-        }
         fs.mkdirSync(resolved, { recursive: true })
         fs.symlinkSync(resolved, dest, 'junction')
         if (opts?.stagedJunctions) {
@@ -666,4 +662,9 @@ function mergeModulesDirs (src: string, dest: string): void {
   for (const file of filesToMove) {
     renameEvenAcrossDevices(path.join(src, file), path.join(dest, file))
   }
+}
+
+function escapesDir (rootDir: string, targetPath: string): boolean {
+  const rel = path.relative(rootDir, targetPath)
+  return rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)
 }

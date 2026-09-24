@@ -109,6 +109,8 @@ pub enum ImportIndexedDirError {
         #[error(source)]
         error: io::Error,
     },
+    #[display("symlink target {target:?} escapes package root {root:?}")]
+    SymlinkTargetEscapes { target: PathBuf, root: PathBuf },
 }
 
 /// How [`populate_dir`] puts each indexed entry at its final path.

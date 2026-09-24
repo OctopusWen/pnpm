@@ -43,6 +43,7 @@ pub(super) fn populate_dir<Reporter: self::Reporter>(
                 store_path,
                 &dir_path.join(cleaned_entry),
                 preserve_symlinks,
+                dir_path,
             )
         })?;
 
@@ -54,6 +55,7 @@ pub(super) fn populate_dir<Reporter: self::Reporter>(
             &cas_paths[marker],
             &dir_path.join(marker),
             preserve_symlinks,
+            dir_path,
         )?;
     }
     Ok(())
@@ -114,11 +116,12 @@ pub(super) fn place_entry<Reporter: self::Reporter>(
     store_path: &Path,
     target: &Path,
     preserve_symlinks: bool,
+    pkg_root: &Path,
 ) -> Result<(), ImportIndexedDirError> {
     if preserve_symlinks
         && fs::symlink_metadata(store_path).is_ok_and(|meta| meta.file_type().is_symlink())
     {
-        return place_symlink_entry(placement, store_path, target);
+        return place_symlink_entry(placement, store_path, target, pkg_root);
     }
     match placement {
         Placement::Fresh => {
@@ -135,16 +138,11 @@ pub(super) fn place_entry<Reporter: self::Reporter>(
     }
 }
 
-fn place_symlink_entry(
-    placement: Placement,
+fn validate_symlink_target(
     store_path: &Path,
     target: &Path,
-) -> Result<(), ImportIndexedDirError> {
-    if placement == Placement::Repair && file_matches_store_entry(target, store_path) {
-        return Ok(());
-    }
-    clear_dir_blocking_file::<Host>(target)?;
-    let temp = super::staging::pick_stage_path(target);
+    pkg_root: &Path,
+) -> Result<PathBuf, ImportIndexedDirError> {
     let mut link_target = fs::read_link(store_path)
         .map_err(|error| {
             ImportIndexedDirError::LinkFile(crate::link_file::LinkFileError::Import {
@@ -159,6 +157,30 @@ fn place_symlink_entry(
     {
         link_target = rel;
     }
+    let dest_dir = target.parent().unwrap_or(pkg_root);
+    let resolved =
+        if link_target.is_absolute() { link_target.clone() } else { dest_dir.join(&link_target) };
+    if !pnpm_fs::is_subdir(pkg_root, &resolved) {
+        return Err(ImportIndexedDirError::SymlinkTargetEscapes {
+            target: link_target,
+            root: pkg_root.to_path_buf(),
+        });
+    }
+    Ok(link_target)
+}
+
+fn place_symlink_entry(
+    placement: Placement,
+    store_path: &Path,
+    target: &Path,
+    pkg_root: &Path,
+) -> Result<(), ImportIndexedDirError> {
+    let link_target = validate_symlink_target(store_path, target, pkg_root)?;
+    if placement == Placement::Repair && file_matches_store_entry(target, store_path) {
+        return Ok(());
+    }
+    clear_dir_blocking_file::<Host>(target)?;
+    let temp = super::staging::pick_stage_path(target);
     let is_dir = fs::metadata(store_path).is_ok_and(|meta| meta.is_dir());
     if let Err(error) = pnpm_fs::create_symlink(&link_target, &temp, is_dir) {
         let _ = fs::remove_file(&temp);
@@ -168,18 +190,31 @@ fn place_symlink_entry(
             error,
         }));
     }
-    match pnpm_fs::rename_with_retry(&temp, target) {
+    commit_symlink_placement(&temp, target, store_path)
+}
+
+fn commit_symlink_placement(
+    temp: &Path,
+    target: &Path,
+    store_path: &Path,
+) -> Result<(), ImportIndexedDirError> {
+    match pnpm_fs::rename_with_retry(temp, target) {
         Ok(()) => Ok(()),
         Err(_) if file_matches_store_entry(target, store_path) => {
-            let _ = fs::remove_file(&temp);
+            let _ = fs::remove_file(temp);
             Ok(())
         }
         Err(error) => {
-            let _ = fs::remove_file(&temp);
-            Err(ImportIndexedDirError::PlaceFile { from: temp, to: target.to_path_buf(), error })
+            let _ = fs::remove_file(temp);
+            Err(ImportIndexedDirError::PlaceFile {
+                from: temp.to_path_buf(),
+                to: target.to_path_buf(),
+                error,
+            })
         }
     }
 }
+
 /// The completion marker is always placed atomically, in either
 /// placement, so no reader observes it half-written. A repair adds the
 /// clearing pass, since the marker path may hold a directory in a tree
@@ -191,11 +226,12 @@ pub(super) fn place_marker<Reporter: self::Reporter>(
     store_path: &Path,
     target: &Path,
     preserve_symlinks: bool,
+    pkg_root: &Path,
 ) -> Result<(), ImportIndexedDirError> {
     if preserve_symlinks
         && fs::symlink_metadata(store_path).is_ok_and(|meta| meta.file_type().is_symlink())
     {
-        return place_symlink_entry(placement, store_path, target);
+        return place_symlink_entry(placement, store_path, target, pkg_root);
     }
     if placement == Placement::Repair {
         clear_dir_blocking_file::<Host>(target)?;

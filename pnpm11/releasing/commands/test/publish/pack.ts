@@ -1385,15 +1385,15 @@ let canSymlink = true
 const probe = path.join(process.cwd(), `symlink-probe-${process.pid}`)
 try {
   fs.symlinkSync(process.cwd(), probe, 'dir')
-  try {
-    fs.unlinkSync(probe)
-  } catch {} // eslint-disable-line:no-empty
 } catch (err: unknown) {
   if (util.types.isNativeError(err) && 'code' in err && (err.code === 'EPERM' || err.code === 'EACCES')) {
     canSymlink = false
   } else {
     throw err
   }
+}
+if (canSymlink) {
+  fs.unlinkSync(probe)
 }
 const testWithSymlinks = canSymlink ? test : test.skip
 
