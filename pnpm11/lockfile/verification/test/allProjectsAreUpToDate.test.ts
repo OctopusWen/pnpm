@@ -705,6 +705,62 @@ test('allProjectsAreUpToDate(): returns false if a workspace dependency targets 
   })).toBeFalsy()
 })
 
+test('allProjectsAreUpToDate(): returns false if a non-injected workspace dependency has a file reference in lockfile', async () => {
+  expect(await allProjectsAreUpToDate([
+    {
+      id: 'bar' as ProjectId,
+      manifest: {
+        dependencies: {
+          foo: 'workspace:^1.0.0',
+        },
+      },
+      rootDir: 'bar' as ProjectRootDir,
+    },
+    {
+      id: 'foo' as ProjectId,
+      manifest: {
+        name: 'foo',
+        version: '1.0.0',
+      },
+      rootDir: 'foo' as ProjectRootDir,
+    },
+  ], {
+    autoInstallPeers: false,
+    catalogs: {},
+    excludeLinksFromLockfile: false,
+    linkWorkspacePackages: true,
+    wantedLockfile: {
+      importers: {
+        ['bar' as ProjectId]: {
+          dependencies: {
+            foo: 'file:../foo',
+          },
+          specifiers: {
+            foo: 'workspace:^1.0.0',
+          },
+        },
+        ['foo' as ProjectId]: {
+          specifiers: {},
+        },
+      },
+      lockfileVersion: LOCKFILE_VERSION,
+    },
+    workspacePackages: new Map([
+      ['foo', new Map([
+        ['1.0.0', {
+          id: 'foo' as ProjectId,
+          manifest: {
+            name: 'foo',
+            version: '1.0.0',
+          },
+          rootDir: 'foo' as ProjectRootDir,
+        }],
+      ])],
+    ]),
+    lockfileDir: '',
+  })).toBeFalsy()
+})
+
 test('allProjectsAreUpToDate(): returns false when link target is missing even if same-name workspace package exists at another directory', async () => {
   expect(await allProjectsAreUpToDate([
     {

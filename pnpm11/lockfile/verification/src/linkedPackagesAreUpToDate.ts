@@ -130,6 +130,12 @@ export async function checkLinkedPackagesAreUpToDate (
             }
           }
         }
+        if (currentSpec.startsWith('workspace:') && !currentSpec.startsWith('workspace:.') && !isInjected && (refWithoutPeers.startsWith('file:') || refWithoutPeers.includes('@file:'))) {
+          return {
+            upToDate: false,
+            detailedReason: `Non-injected workspace dependency "${depName}" cannot have file reference in lockfile: "${lockfileRef}"`,
+          }
+        }
         return { upToDate: true }
       }
       if (currentSpec.startsWith('workspace:') && !currentSpec.startsWith('workspace:.') && workspacePackages?.has(pkgName)) {
