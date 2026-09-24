@@ -225,6 +225,36 @@ pub(super) fn prefetched_bin_source(
             .with_resolved_location(target.to_path_buf()),
     )
 }
+fn read_manifest_at(manifest_path: &Path) -> Result<Option<serde_json::Value>, LinkBinsError> {
+    let bytes = match fs::read(manifest_path) {
+        Ok(bytes) => bytes,
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(LinkBinsError::ReadManifest { path: manifest_path.to_path_buf(), error });
+        }
+    };
+    parse_manifest_bytes(&bytes)
+        .map(Some)
+        .map_err(|error| LinkBinsError::ParseManifest { path: manifest_path.to_path_buf(), error })
+}
+
+fn read_parent_publish_manifest(target: &Path) -> Result<Option<serde_json::Value>, LinkBinsError> {
+    let normalized_target = pnpm_fs::lexical_normalize(target);
+    for parent in target.ancestors().skip(1) {
+        let manifest_path = parent.join("package.json");
+        let Some(manifest) = read_manifest_at(&manifest_path)? else { continue };
+        let is_publish_dir = manifest
+            .get("publishConfig")
+            .and_then(|cfg| cfg.get("directory"))
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|dir| pnpm_fs::lexical_normalize(&parent.join(dir)) == normalized_target);
+        if is_publish_dir {
+            return Ok(Some(manifest));
+        }
+    }
+    Ok(None)
+}
+
 /// The disk-read arm of [`link_direct_dep_bins_prefetched`], with the
 /// same `NotFound`-tolerant / other-IO-fatal policy as
 /// [`link_direct_dep_bins`].
@@ -235,18 +265,14 @@ pub(super) fn read_dep_bin_source(
 ) -> Option<Result<PackageBinSource, LinkBinsError>> {
     let location = modules_dir.join(name);
     let manifest_path = location.join("package.json");
-    let bytes = match fs::read(&manifest_path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
-        Err(error) => {
-            return Some(Err(LinkBinsError::ReadManifest { path: manifest_path, error }));
-        }
-    };
-    let manifest: serde_json::Value = match parse_manifest_bytes(&bytes) {
-        Ok(manifest) => manifest,
-        Err(error) => {
-            return Some(Err(LinkBinsError::ParseManifest { path: manifest_path, error }));
-        }
+    let manifest = match read_manifest_at(&manifest_path) {
+        Ok(Some(manifest)) => manifest,
+        Ok(None) => match read_parent_publish_manifest(target) {
+            Ok(Some(manifest)) => manifest,
+            Ok(None) => return None,
+            Err(err) => return Some(Err(err)),
+        },
+        Err(err) => return Some(Err(err)),
     };
     Some(Ok(PackageBinSource::new(location, Arc::new(manifest))
         .with_resolved_location(target.to_path_buf())))
@@ -267,26 +293,14 @@ pub(super) fn link_named_dep_bins(
     let bin_sources: Vec<PackageBinSource> = deps
         .par_iter()
         .filter_map(|(name, resolved)| {
-            let location = modules_dir.join(name);
-            let manifest_path = location.join("package.json");
-            let bytes = match fs::read(&manifest_path) {
-                Ok(bytes) => bytes,
-                Err(error) if error.kind() == io::ErrorKind::NotFound => return None,
-                Err(error) => {
-                    return Some(Err(LinkBinsError::ReadManifest { path: manifest_path, error }));
-                }
+            let target_buf;
+            let target: &Path = if let Some(resolved) = *resolved {
+                resolved
+            } else {
+                target_buf = modules_dir.join(name);
+                &target_buf
             };
-            let manifest: serde_json::Value = match parse_manifest_bytes(&bytes) {
-                Ok(manifest) => manifest,
-                Err(error) => {
-                    return Some(Err(LinkBinsError::ParseManifest { path: manifest_path, error }));
-                }
-            };
-            let mut source = PackageBinSource::new(location, Arc::new(manifest));
-            if let Some(resolved) = resolved {
-                source = source.with_resolved_location(resolved.to_path_buf());
-            }
-            Some(Ok(source))
+            read_dep_bin_source(modules_dir, name, target)
         })
         .collect::<Result<_, _>>()?;
     if bin_sources.is_empty() {
