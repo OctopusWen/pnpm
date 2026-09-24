@@ -47,6 +47,7 @@ export async function allProjectsAreUpToDate (
     workspacePackages: opts.workspacePackages,
     lockfilePackages: opts.wantedLockfile.packages,
     lockfileDir: opts.lockfileDir,
+    injectWorkspacePackages: opts.wantedLockfile.settings?.injectWorkspacePackages,
   })
   const _localTarballDepsAreUpToDate = localTarballDepsAreUpToDate.bind(null, {
     fileIntegrityCache: new Map(),

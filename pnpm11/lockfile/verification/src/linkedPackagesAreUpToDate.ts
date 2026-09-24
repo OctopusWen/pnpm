@@ -31,12 +31,14 @@ export async function checkLinkedPackagesAreUpToDate (
     workspacePackages,
     lockfilePackages,
     lockfileDir,
+    injectWorkspacePackages,
   }: {
     linkWorkspacePackages: boolean
     manifestsByDir: Record<string, DependencyManifest>
     workspacePackages?: WorkspacePackages
     lockfilePackages?: PackageSnapshots
     lockfileDir: string
+    injectWorkspacePackages?: boolean
   },
   project: {
     dir: string
@@ -61,6 +63,7 @@ export async function checkLinkedPackagesAreUpToDate (
       const currentSpec = project.manifest[depField]![depName]
       const lockfileRef = project.snapshot[depField]![depName]
       const isInjected = Boolean(
+        injectWorkspacePackages ||
         project.manifest.dependenciesMeta?.[depName]?.injected ||
         project.snapshot.dependenciesMeta?.[depName]?.injected
       )
@@ -198,6 +201,7 @@ export async function linkedPackagesAreUpToDate (
     workspacePackages?: WorkspacePackages
     lockfilePackages?: PackageSnapshots
     lockfileDir: string
+    injectWorkspacePackages?: boolean
   },
   project: {
     dir: string

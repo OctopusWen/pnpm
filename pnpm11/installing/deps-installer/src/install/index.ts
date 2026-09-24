@@ -1713,6 +1713,7 @@ Note that in CI environments, this setting is enabled by default.`,
         workspacePackages: ctx.workspacePackages,
         lockfilePackages: ctx.wantedLockfile.packages,
         lockfileDir: opts.lockfileDir,
+        injectWorkspacePackages: opts.injectWorkspacePackages ?? ctx.wantedLockfile.settings?.injectWorkspacePackages,
       })
       const _satisfiesPackageManifest = satisfiesPackageManifest.bind(null, {
         autoInstallPeers: opts.autoInstallPeers,
