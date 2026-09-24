@@ -132,6 +132,15 @@ export async function checkLinkedPackagesAreUpToDate (
         }
         return { upToDate: true }
       }
+      if (currentSpec.startsWith('workspace:') && !currentSpec.startsWith('workspace:.') && workspacePackages?.has(pkgName)) {
+        const pkgs = Array.from(workspacePackages.get(pkgName)!.values())
+        if (!pkgs.some(p => isSameOrSubdirectory(p.rootDir, linkedDir!))) {
+          return {
+            upToDate: false,
+            detailedReason: `Workspace package "${depName}" is resolved to "${linkedDir}" which is not within the workspace directory for "${pkgName}"`,
+          }
+        }
+      }
       let linkedPkg: DependencyManifest | undefined
       if (linkedDir) {
         linkedPkg = manifestsByDir[linkedDir] ?? await safeReadPackageJsonFromDir(linkedDir)
@@ -291,4 +300,9 @@ function getPackageNameAndRange (depName: string, spec: string): { name: string,
 
 function getVersionRange (spec: string): string {
   return getPackageNameAndRange('', spec).range
+}
+
+function isSameOrSubdirectory (parentDir: string, targetDir: string): boolean {
+  const rel = path.relative(path.resolve(parentDir), path.resolve(targetDir))
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
 }
