@@ -253,7 +253,7 @@ fn walk_all_files_rejects_escape_from_a_linked_root_when_confined() {
 
 #[cfg(unix)]
 #[test]
-fn walk_all_files_rewrites_confined_symlink_sources_to_real_paths() {
+fn walk_all_files_keeps_confined_symlink_sources_without_resolve_symlinks() {
     use std::os::unix::fs::symlink;
 
     let dir = tempdir().unwrap();
@@ -263,7 +263,11 @@ fn walk_all_files_rewrites_confined_symlink_sources_to_real_paths() {
 
     let out = walk_all_files(root, false, false).unwrap();
     let src = out.get("link.txt").expect("link.txt entry");
-    assert_eq!(src, &fs::canonicalize(root.join("real.txt")).unwrap());
+    assert_eq!(src, &root.join("link.txt"));
+
+    let out_resolved = walk_all_files(root, true, false).unwrap();
+    let src_resolved = out_resolved.get("link.txt").expect("link.txt entry");
+    assert_eq!(src_resolved, &fs::canonicalize(root.join("real.txt")).unwrap());
 }
 
 #[test]

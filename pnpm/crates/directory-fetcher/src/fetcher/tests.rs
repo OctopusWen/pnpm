@@ -4,7 +4,7 @@ use tempfile::tempdir;
 
 #[cfg(unix)]
 #[test]
-fn confined_all_files_fetcher_rewrites_symlink_sources_to_real_paths() {
+fn confined_all_files_fetcher_keeps_symlink_sources_without_resolve_symlinks() {
     use std::os::unix::fs::symlink;
 
     let dir = tempdir().unwrap();
@@ -26,8 +26,19 @@ fn confined_all_files_fetcher_rewrites_symlink_sources_to_real_paths() {
     .run()
     .unwrap();
 
+    assert_eq!(output.files_map.get("link.txt"), Some(&root.join("link.txt")));
+
+    let output_resolved = DirectoryFetcher {
+        directory: root.to_path_buf(),
+        include_only_package_files: false,
+        resolve_symlinks: true,
+        allow_path_escape: false,
+    }
+    .run()
+    .unwrap();
+
     assert_eq!(
-        output.files_map.get("link.txt"),
+        output_resolved.files_map.get("link.txt"),
         Some(&fs::canonicalize(root.join("real.txt")).unwrap()),
     );
 }
