@@ -146,7 +146,7 @@ fn resolve_entry(
     confined_root: Option<&Path>,
 ) -> Result<Option<ResolvedEntry>, DirectoryFetcherError> {
     if let Some(root) = confined_root {
-        return resolve_confined_entry(path, root);
+        return resolve_confined_entry(path, root, resolve_symlinks);
     }
     if resolve_symlinks {
         return resolve_followed_entry(path);
@@ -166,6 +166,7 @@ fn resolve_entry(
 fn resolve_confined_entry(
     path: &Path,
     root: &Path,
+    resolve_symlinks: bool,
 ) -> Result<Option<ResolvedEntry>, DirectoryFetcherError> {
     let Some(lstat) = stat_or_skip(path, |path| fs::symlink_metadata(path))? else {
         return Ok(None);
@@ -181,6 +182,9 @@ fn resolve_confined_entry(
             path: path.to_path_buf(),
             directory: root.to_path_buf(),
         });
+    }
+    if !resolve_symlinks {
+        return Ok(Some(ResolvedEntry { path: path.to_path_buf(), metadata: lstat }));
     }
     let Some(metadata) = stat_or_skip(&real, |path| fs::metadata(path))? else {
         return Ok(None);

@@ -35,6 +35,7 @@ export interface ImportIndexedDirOptions {
   safeToSkip?: boolean
   resolvedFrom?: ResolvedFrom
   isStaged?: boolean
+  stagedJunctions?: Array<{ dest: string, target: string }>
 }
 
 // What one call to importIndexedDir is importing, threaded to the helpers that
@@ -81,9 +82,10 @@ export function importIndexedDir (
   // The dir rename is itself atomic, so individual file atomicity is not
   // needed here — use importFile for everything.
   const stage = pathTemp(newDir)
+  const stagedJunctions: Array<{ dest: string, target: string }> = []
   try {
     makeEmptyDirSync(stage, { recursive: true })
-    tryImportIndexedDir({ importFile: importer.importFile, importFileAtomic: importer.importFile }, stage, filenames, { ...opts, isStaged: true })
+    tryImportIndexedDir({ importFile: importer.importFile, importFileAtomic: importer.importFile }, stage, filenames, { ...opts, isStaged: true, stagedJunctions })
     if (opts.keepModulesDir) {
       // Keeping node_modules is needed only when the hoisted node linker is used.
       moveOrMergeModulesDirs(path.join(newDir, 'node_modules'), path.join(stage, 'node_modules'))
@@ -97,6 +99,20 @@ export function importIndexedDir (
   }
   try {
     renameOverwriteSync(stage, newDir)
+    for (const { dest, target } of stagedJunctions) {
+      const rel = path.relative(stage, dest)
+      const finalDest = path.join(newDir, rel)
+      const finalTarget = path.isAbsolute(target) ? target : path.resolve(path.dirname(finalDest), target)
+      try {
+        fs.unlinkSync(finalDest)
+      } catch {
+        try {
+          fs.rmdirSync(finalDest)
+        } catch {} // eslint-disable-line:no-empty
+      }
+      fs.mkdirSync(finalTarget, { recursive: true })
+      fs.symlinkSync(finalTarget, finalDest, 'junction')
+    }
   } catch (renameErr: unknown) {
     try {
       rimrafSync(stage)
@@ -496,14 +512,14 @@ function importEntry (importFile: ImportFile, src: string, dest: string, opts?: 
       if (!util.types.isNativeError(err) || !('code' in err) || err.code !== 'ENOENT') throw err
     }
     if (stat?.isSymbolicLink()) {
-      copySymlink(src, dest, opts?.isStaged)
+      copySymlink(src, dest, opts)
       return
     }
   }
   importFile(src, dest)
 }
 
-function copySymlink (src: string, dest: string, isStaged?: boolean): void {
+function copySymlink (src: string, dest: string, opts?: ImportIndexedDirOptions): void {
   let target = fs.readlinkSync(src)
   if (path.isAbsolute(target)) {
     target = path.relative(path.dirname(src), target)
@@ -520,12 +536,16 @@ function copySymlink (src: string, dest: string, isStaged?: boolean): void {
   try {
     fs.symlinkSync(target, dest, type)
   } catch (err: unknown) {
-    if (process.platform === 'win32' && type === 'dir' && !isStaged) {
+    if (process.platform === 'win32' && type === 'dir') {
       try {
         const resolved = path.isAbsolute(target)
           ? target
           : path.resolve(path.dirname(dest), target)
+        fs.mkdirSync(resolved, { recursive: true })
         fs.symlinkSync(resolved, dest, 'junction')
+        if (opts?.stagedJunctions) {
+          opts.stagedJunctions.push({ dest, target })
+        }
         return
       } catch {}
     }

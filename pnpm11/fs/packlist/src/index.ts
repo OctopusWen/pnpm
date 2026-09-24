@@ -128,6 +128,15 @@ function isInternalFileOrSymlink (pkgDir: string, relFile: string): boolean {
     return true
   }
   const linkTarget = fs.readlinkSync(absPath)
+  const relPosix = process.platform === 'win32' ? relFile.replace(/\\/g, '/') : relFile
+  const posixTarget = linkTarget.replace(/\\/g, '/')
+  if (path.posix.isAbsolute(posixTarget)) {
+    return false
+  }
+  const normalizedArchive = path.posix.normalize(path.posix.join(path.posix.dirname(relPosix), posixTarget))
+  if (normalizedArchive === '..' || normalizedArchive.startsWith('../')) {
+    return false
+  }
   const resolvedTarget = path.resolve(path.dirname(absPath), linkTarget)
   const relToPkg = path.relative(pkgDir, resolvedTarget)
   if (isEscapingRelativePath(relToPkg)) {

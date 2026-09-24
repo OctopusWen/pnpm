@@ -621,7 +621,18 @@ async function packPkg (opts: {
       if (path.isAbsolute(linkname)) {
         linkname = path.relative(path.dirname(entry.source), linkname)
       }
-      linkname = linkname.replace(/\\/g, '/')
+      if (process.platform === 'win32') {
+        linkname = linkname.replace(/\\/g, '/')
+      }
+      const archiveDir = path.posix.dirname(entry.name)
+      const posixTarget = linkname.replace(/\\/g, '/')
+      if (path.posix.isAbsolute(posixTarget)) {
+        continue
+      }
+      const resolvedArchive = path.posix.normalize(path.posix.join(archiveDir, posixTarget))
+      if (resolvedArchive !== 'package' && !resolvedArchive.startsWith('package/')) {
+        continue
+      }
       pack.entry({ mode: 0o777, mtime, name: entry.name, type: 'symlink', linkname })
       continue
     }
